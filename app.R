@@ -20,10 +20,12 @@ library(shinyjs)
 library(DT)
 library(purrr)
 library(rvest)
+library(xml2) # Explicitly load xml2 for its functions
 
 # SOURCE THE MODULES
 source("history_module.R")
 source("calculator_module.R")
+source("encyclopedia_module.R")
 
 
 # =============================================================
@@ -54,34 +56,73 @@ fetch_item_info <- function() {
 item_encyclopedia <- fetch_item_info()
 
 
-# Scraper for gamerant.com
+# Scraper for growagardencalculator.net/grow-a-garden-values
 fetch_fruit_values <- function() {
-  message("--- Fetching DETAILED Fruit Values from gamerant.com ---")
-  values_url <- "https://gamerant.com/roblox-grow-a-garden-all-crops-how-to-get-them/"
+  message("--- Fetching DETAILED Fruit Values from growagardencalculator.net ---")
+  values_url <- "https://growagardencalculator.net/grow-a-garden-values"
   tryCatch({
-    page_html <- read_html(values_url)
-    fruit_table <- page_html %>% html_node("table")
-    df <- fruit_table %>% html_table()
+    response <- GET(values_url)
+    stop_for_status(response, "download page")
+    page_html <- content(response, "text", encoding = "UTF-8") %>% read_html()
+    all_tables <- page_html %>% html_nodes("table")
+    if (length(all_tables) == 0) {
+      message("   No tables found on the page.")
+      return(tibble())
+    }
+    df <- all_tables %>% 
+      map_dfr(~html_table(.x, na.strings = c("", "NA", "N/A", "Unknown")) %>% mutate(across(everything(), as.character)))
     df <- df %>%
       rename(
-        name = `All Crops`,
-        rarity = Rarity,
-        type = Type,
-        sell_value = `Sell Price (Average per Unit)`,
-        how_to_get = `How to Get Them`
+        name = `Crop Name`, sheckle_price = `Sheckle Price`,
+        sell_value = `Min Value`, robux_price = `Robux Price`,
+        stock = Stock, rarity = Tier,
+        multi_harvest = `Multi Harvest`, obtainable = Obtainable
       ) %>%
       mutate(
-        sell_value = str_replace_all(sell_value, "Shuckles", ""),
-        sell_value = str_replace_all(sell_value, ",", ""),
+        sell_value = if_else(sell_value %in% c("Mythical", "Divine"), robux_price, sell_value),
+        sell_value = as.character(sell_value),
+        sell_value = str_replace_all(sell_value, "[~,]", ""),
+        sell_value = str_extract(sell_value, "^\\d+"),
         sell_value = str_trim(sell_value)
-      )
+      ) %>%
+      filter(name != "", !is.na(name), sell_value != "", !is.na(sell_value)) %>%
+      filter(!is.na(suppressWarnings(as.numeric(sell_value))))
     message("   Detailed fruit values scraped successfully for ", nrow(df), " fruits.")
     return(df)
   }, error = function(e) {
-    message("   ERROR fetching fruit values from gamerant: ", e$message)
+    message("   ERROR fetching fruit values: ", e$message)
     return(tibble())
   })
 }
+
+
+# Scraper for the mutations page
+fetch_mutation_data <- function() {
+  message("--- Fetching Mutation Data (once) ---")
+  mutations_url <- "https://growagardencalculator.net/wiki/grow-a-garden-mutations"
+  tryCatch({
+    page_html <- read_html(mutations_url)
+    mutation_table <- page_html %>% html_node("table")
+    df <- mutation_table %>% html_table()
+    
+    df <- df %>%
+      rename(name = `Mutation Name`, bonus = `Stack Bonus`) %>%
+      select(name, bonus) %>%
+      mutate(
+        bonus = str_replace(bonus, "\\+", ""),
+        bonus = suppressWarnings(as.numeric(bonus))
+      ) %>%
+      filter(!is.na(bonus))
+    
+    message("   Mutation data fetched successfully for ", nrow(df), " mutations.")
+    return(df)
+  }, error = function(e) {
+    message("   ERROR fetching mutation data: ", e$message)
+    return(tibble())
+  })
+}
+
+mutation_data <- fetch_mutation_data()
 
 
 # Primary data function for the live dashboard, using the official APIs.
@@ -138,6 +179,229 @@ fetch_public_api_data <- function() {
 }
 
 
+# --- ENCYCLOPEDIA SCRAPING FUNCTIONS (ALL FIXED) ---
+
+# --- FIXED ---
+fetch_ign_seed_data <- function() {
+  message("--- Fetching Seed & Crop Data from IGN ---")
+  url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Seed_and_Crop_Guide"
+  
+  tryCatch({
+    page <- read_html(url)
+    all_tables <- page %>% html_nodes("table")
+    
+    if (length(all_tables) < 2) stop("Could not find both the permanent and pack seed tables.")
+    
+    # The first table is for permanent seeds
+    perm_table <- all_tables[[1]]
+    
+    # The second table is for pack seeds
+    pack_table <- all_tables[[2]]
+    
+    # --- Process Permanent Seeds Table ---
+    perm_seeds_list <- list()
+    current_rarity <- "Unknown"
+    rows_perm <- perm_table %>% html_nodes("tr")
+    
+    for (row in rows_perm) {
+      header_cell <- row %>% html_node("th[colspan='3']")
+      if (!is.na(header_cell)) {
+        rarity_text <- header_cell %>% html_text(trim = TRUE)
+        current_rarity <- str_replace(rarity_text, "All (.*) Seeds", "\\1")
+        next
+      }
+      cells <- row %>% html_nodes("td")
+      if (length(cells) == 3) {
+        seed_name <- cells[[1]] %>% html_text(trim = TRUE)
+        perm_seeds_list[[length(perm_seeds_list) + 1]] <- tibble(
+          name = seed_name, cost = cells[[2]] %>% html_text(trim = TRUE),
+          harvest_type = cells[[3]] %>% html_text(trim = TRUE), rarity = current_rarity,
+          source = "Seed Shop"
+        )
+      }
+    }
+    
+    # --- Process Pack Seeds Table ---
+    pack_seeds_df <- html_table(pack_table, header = TRUE) %>%
+      rename(name = 1, harvest_type = 2, rarity = 3, source = 4) %>%
+      filter(!is.na(name) & name != "Name of Seed") # Clean up header rows if any
+    
+    # --- Combine and Finalize ---
+    all_seeds_df <- bind_rows(perm_seeds_list) %>%
+      bind_rows(pack_seeds_df) %>%
+      mutate(
+        cost_numeric = suppressWarnings(as.numeric(gsub("[^0-9]", "", cost))),
+        harvest_type = if_else(str_detect(tolower(harvest_type), "multiple"), "Multiple", "Single"),
+        image_url = NA_character_ # Image scraping is complex and less critical, can be added later
+      ) %>%
+      distinct(name, .keep_all = TRUE) %>%
+      select(name, rarity, harvest_type, cost_numeric, source, image_url)
+    
+    message("   Seed data scraped successfully for ", nrow(all_seeds_df), " seeds.")
+    return(all_seeds_df)
+    
+  }, error = function(e) {
+    message("   ERROR fetching IGN seed data: ", e$message)
+    return(tibble())
+  })
+}
+
+# --- FIXED ---
+fetch_ign_gear_data <- function() {
+  message("--- Fetching Gear Data from IGN ---")
+  url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Gear_Guide"
+  tryCatch({
+    page <- read_html(url)
+    
+    # Find the correct table by looking for its specific column headers
+    all_tables <- page %>% html_nodes("table")
+    table_node <- NULL
+    for(tbl in all_tables) {
+      headers <- tbl %>% html_nodes("th") %>% html_text(trim = TRUE)
+      if (all(c("Tool", "Cost", "Use", "Number of Uses") %in% headers)) {
+        table_node <- tbl
+        break
+      }
+    }
+    
+    if (is.null(table_node)) stop("Gear table not found on page.")
+    
+    gear_list <- list()
+    current_rarity <- "Unknown"
+    rows <- table_node %>% html_nodes("tr")
+    
+    for (row in rows) {
+      header_cell <- row %>% html_node("th[colspan='4']")
+      if (!is.na(header_cell)) {
+        current_rarity <- header_cell %>% html_text(trim = TRUE)
+        next
+      }
+      
+      cells <- row %>% html_nodes("td")
+      if (length(cells) == 4) {
+        gear_list[[length(gear_list) + 1]] <- tibble(
+          name = cells[[1]] %>% html_text(trim = TRUE),
+          cost = cells[[2]] %>% html_text(trim = TRUE),
+          description = cells[[3]] %>% html_text(trim = TRUE),
+          uses = cells[[4]] %>% html_text(trim = TRUE),
+          rarity = current_rarity
+        )
+      }
+    }
+    
+    if (length(gear_list) == 0) stop("No gear data rows found in the table.")
+    
+    gear_df <- bind_rows(gear_list) %>%
+      mutate(cost_numeric = suppressWarnings(as.numeric(gsub("[^0-9,]", "", cost)))) %>%
+      select(name, rarity, cost_numeric, description, uses)
+    
+    message("   Gear data scraped successfully for ", nrow(gear_df), " items.")
+    return(gear_df)
+    
+  }, error = function(e) {
+    message("   ERROR fetching IGN gear data: ", e$message)
+    return(tibble())
+  })
+}
+
+# --- FIXED ---
+fetch_ign_egg_data <- function() {
+  message("--- Fetching Egg & Animal Data from IGN ---")
+  url <- "https://www.ign.com/wikis/grow-a-garden/The_Animal_Update_-_Pet_Egg_Guide"
+  tryCatch({
+    page <- read_html(url)
+    all_tables <- page %>% html_nodes("table")
+    
+    # Identify tables by their unique column headers
+    egg_table_node <- all_tables %>% 
+      keep(~ "Time to Grow" %in% (.x %>% html_nodes("th") %>% html_text())) %>% 
+      first()
+    
+    pet_table_node <- all_tables %>% 
+      keep(~ "Skill" %in% (.x %>% html_nodes("th") %>% html_text())) %>% 
+      first()
+    
+    if (is.null(egg_table_node) || is.null(pet_table_node)) {
+      stop("Could not find both egg and pet tables on the page.")
+    }
+    
+    egg_df <- html_table(egg_table_node) %>%
+      rename(name = 1, cost = 2, chance_to_appear = 3, num_pets = 4, grow_time = 5) %>%
+      filter(!is.na(name) & name != "Egg Type") %>%
+      mutate(
+        cost_numeric = suppressWarnings(as.numeric(gsub("[^0-9]", "", cost))),
+        type = "Egg"
+      ) %>%
+      select(name, type, cost_numeric, chance_to_appear, num_pets, grow_time)
+    
+    pet_df <- html_table(pet_table_node) %>%
+      rename(name = 1, rarity = 2, bonus = 3) %>%
+      filter(!is.na(name) & name != "Animal Type") %>%
+      mutate(type = "Pet") %>%
+      select(name, type, rarity, bonus)
+    
+    message("   Egg & Pet data scraped successfully.")
+    return(list(eggs = egg_df, pets = pet_df))
+    
+  }, error = function(e) {
+    message("   ERROR fetching IGN egg/pet data: ", e$message)
+    return(list(eggs = tibble(), pets = tibble()))
+  })
+}
+
+# --- FIXED ---
+fetch_ign_weather_mutation_data <- function() {
+  message("--- Fetching Weather & Mutation Data from IGN ---")
+  url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Weather_and_Mutation_Guide"
+  tryCatch({
+    page <- read_html(url)
+    all_tables <- page %>% html_nodes("table")
+    
+    # Find the weather table by checking for a header containing "All Weather Events"
+    weather_table_node <- all_tables %>%
+      keep(~any(str_detect(.x %>% html_nodes("th") %>% html_text(), "All Weather Events"))) %>%
+      first()
+    
+    # Find the mutation table by checking for a header of "Mutation"
+    mutation_table_node <- all_tables %>%
+      keep(~any(str_detect(.x %>% html_nodes("th") %>% html_text(), "Mutation"))) %>%
+      first()
+    
+    if (is.null(weather_table_node)) stop("Weather table not found on page.")
+    if (is.null(mutation_table_node)) stop("Mutation table not found on page.")
+    
+    # The weather table is poorly structured, so we manually extract the descriptions
+    # This part is tricky because the descriptions are outside the table. We will skip for now.
+    weather_df <- html_table(weather_table_node, header = FALSE) %>%
+      slice(-1) %>% # Remove the "All Weather Events" header row
+      purrr::map_dfc( ~ .x) %>%
+      tidyr::pivot_longer(everything(), names_to = NULL, values_to = "event") %>%
+      filter(!is.na(event) & nzchar(event)) %>%
+      mutate(effect = "Description not available from this source.") # Placeholder
+    
+    # Scrape the main table and then add descriptions by finding each mutation's header
+    mutations_df <- html_table(mutation_table_node) %>%
+      rename(name = 1, bonus = 2) %>%
+      filter(!is.na(name) & name != "Mutation") %>%
+      mutate(
+        description = map_chr(name, ~{
+          header_id <- paste0(.x, "_Mutation")
+          desc_node <- page %>% 
+            html_node(xpath = paste0("//h2[@id='", header_id, "']/following-sibling::p[1]"))
+          if (!is.na(desc_node)) html_text(desc_node, trim = TRUE) else "No description available."
+        })
+      )
+    
+    message("   Weather & Mutation data scraped successfully.")
+    return(list(weather = weather_df, mutations = mutations_df))
+    
+  }, error = function(e) {
+    message("   ERROR fetching IGN weather/mutation data: ", e$message)
+    return(list(weather = tibble(), mutations = tibble()))
+  })
+}
+
+
 # =============================================================
 # PART 3: UI (USER INTERFACE)
 # =============================================================
@@ -149,7 +413,8 @@ ui <- dashboardPage(
     sidebarMenu(id="tabs", 
                 menuItem("Live Dashboard", tabName="dashboard", icon=icon("dashboard")), 
                 menuItem("Stock History", tabName="history", icon=icon("history")),
-                menuItem("Fruit Calculator", tabName="calculator", icon=icon("calculator"))
+                menuItem("Fruit Calculator", tabName="calculator", icon=icon("calculator")),
+                menuItem("Encyclopedia", tabName = "encyclopedia", icon = icon("book"))
     )
   ),
   dashboardBody(
@@ -166,9 +431,8 @@ ui <- dashboardPage(
       @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       @media (max-width: 767px) { .main-header .logo { font-size: 12px; overflow: hidden; text-overflow: ellipsis; } }
       
-      /* *** NEW: CSS for the styled text boxes *** */
       .formula-box {
-        background-color: #00c0ef; /* shinydashboard info-box blue */
+        background-color: #00c0ef;
         color: white;
         padding: 10px;
         border-radius: 3px;
@@ -176,7 +440,7 @@ ui <- dashboardPage(
         font-weight: bold;
       }
       .solution-box {
-        background-color: #f39c12; /* shinydashboard warning-box orange */
+        background-color: #f39c12;
         color: white;
         padding: 10px;
         border-radius: 3px;
@@ -222,7 +486,8 @@ ui <- dashboardPage(
               )
       ),
       history_ui("history_module"),
-      calculator_ui("calculator")
+      calculator_ui("calculator"),
+      encyclopedia_ui("encyclopedia_module")
     )
   )
 )
@@ -240,13 +505,13 @@ server <- function(input, output, session) {
   
   fetch_and_save_fruit_data <- function() {
     shinyjs::show("loading-overlay")
-    showNotification("Fetching latest fruit data from gamerant.com...", type = "message", duration = 5)
+    showNotification("Fetching latest fruit data...", type = "message", duration = 5)
     
     new_data <- fetch_fruit_values()
     
     if (nrow(new_data) > 0) {
       write.csv(new_data, FRUIT_VALUES_FILE, row.names = FALSE)
-      fruit_data_rv(new_data) # Update the reactive value
+      fruit_data_rv(new_data)
       showNotification("Successfully updated and saved fruit data!", type = "message", duration = 5)
     } else {
       showNotification("Failed to fetch new fruit data. Using existing data if available.", type = "error", duration = 8)
@@ -383,19 +648,35 @@ server <- function(input, output, session) {
       arrange(desc(timestamp_val)) %>% mutate(timestamp = format(timestamp_val, "%Y-%m-%d %I:%M:%S %p")) %>% select(-timestamp_val)
   }, ignoreNULL = FALSE)
   
+  # Fetch and store all encyclopedia data at startup
+  encyclopedia_data <- reactiveVal({
+    list(
+      seeds = fetch_ign_seed_data(),
+      gear = fetch_ign_gear_data(),
+      eggs_and_pets = fetch_ign_egg_data(),
+      weather_and_mutations = fetch_ign_weather_mutation_data()
+    )
+  })
+  
   # --- Module Servers ---
   
   fruit_value_list_rv <- reactive({
     df <- fruit_data_rv()
-    req(df, nrow(df) > 0)
+    req(df, nrow(df) > 0, "name" %in% names(df), "sell_value" %in% names(df))
+    
     df_calc <- df %>%
       mutate(
-        sell_value_numeric = as.numeric(str_extract(sell_value, "\\d+"))
-      )
+        sell_value_numeric = as.numeric(sell_value)
+      ) %>% 
+      filter(!is.na(sell_value_numeric))
+    
     setNames(as.list(df_calc$sell_value_numeric), df_calc$name)
   })
   
-  calculator_return <- calculator_server("calculator", fruit_data_rv = fruit_data_rv, fruit_value_list_rv = fruit_value_list_rv)
+  calculator_return <- calculator_server("calculator", 
+                                         fruit_data_rv = fruit_data_rv, 
+                                         fruit_value_list_rv = fruit_value_list_rv,
+                                         mutation_data = mutation_data)
   
   observeEvent(calculator_return$fetch_data(), {
     req(calculator_return$fetch_data() > 0) 
@@ -403,6 +684,7 @@ server <- function(input, output, session) {
   }, ignoreInit = TRUE) 
   
   history_server("history_module", history_data = history_data)
+  encyclopedia_server("encyclopedia_module", all_encyclopedia_data = encyclopedia_data)
 }
 
 # =============================================================

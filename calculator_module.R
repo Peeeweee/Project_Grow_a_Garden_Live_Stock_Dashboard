@@ -1,12 +1,22 @@
 # --- START FILE: calculator_module.R ---
-
-# =============================================================
+  
+  # =============================================================
 # UI function for the Calculator Module
 # =============================================================
 calculator_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName = "calculator",
+          # Add custom CSS for button glow effect
+          tags$head(
+            tags$style(HTML("
+              .button-glow {
+                box-shadow: 0 0 15px #f39c12 !important;
+                transition: box-shadow 0.2s ease-in-out;
+              }
+            "))
+          ),
+          
           h2("Grow a Garden Fruit Value Calculator"),
           p("Select a crop and its mutations to calculate the final sell value based on the official formula."),
           
@@ -28,27 +38,32 @@ calculator_ui <- function(id) {
                    # -- Mutations Box --
                    box(
                      title = "2. Select Mutations", status = "primary", solidHeader = TRUE, width = 12,
+                     
                      fluidRow(
-                       column(width = 4,
-                              h4("Growth Mutations", style="text-align:center;"),
+                       column(12, align = "right", style = "margin-bottom: 15px;",
+                              actionButton(ns("reset_mutations_button"), "Reset", icon = icon("undo"), class = "btn-sm btn-default"),
+                              actionButton(ns("max_mutations_button"), "Maximize All", icon = icon("rocket"), class = "btn-sm btn-warning")
+                       )
+                     ),
+                     
+                     fluidRow(
+                       column(width = 6,
+                              h4("Growth Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
                               radioButtons(ns("growth_mutation"), label = NULL,
                                            choices = c("None (x1)" = 1, "Golden (x20)" = 20, "Rainbow (x50)" = 50),
-                                           selected = 1)
-                       ),
-                       column(width = 4,
-                              h4("Temperature Mutations", style="text-align:center;"),
+                                           selected = 1),
+                              
+                              br(), 
+                              
+                              h4("Temperature Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
                               radioButtons(ns("temp_mutation"), label = NULL,
                                            choices = c("None (+0)" = 0, "Wet (+1)" = 1, "Chilled (+1)" = 1, "Frozen (+9)" = 9),
                                            selected = 0)
                        ),
-                       column(width = 4,
-                              h4("Environmental Mutations", style="text-align:center;"),
-                              p(em("You can select multiple."), style="text-align:center; font-size:0.9em;"),
-                              checkboxGroupInput(ns("env_mutations"), label = NULL,
-                                                 choices = c("Chocolate (+1)" = 1, "Moonlit (+1)" = 1, "Pollinated (+2)" = 2,
-                                                             "Bloodlit (+3)" = 3, "Plasma (+4)" = 4, "Honey Glazed (+4)" = 4,
-                                                             "Zombified (+24)" = 24, "Shocked (+99)" = 99, "Celestial (+119)" = 119,
-                                                             "Disco (+124)" = 124, "Voidtouched (+134)" = 134))
+                       column(width = 6,
+                              h4("Environmental Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
+                              p(em("You can select multiple."), style="text-align:center; font-size:0.9em; margin-top: -5px;"),
+                              uiOutput(ns("env_mutations_ui"))
                        )
                      )
                    )
@@ -62,14 +77,13 @@ calculator_ui <- function(id) {
                          valueBoxOutput(ns("calculated_value_box"), width = 12)
                      )
                    ),
-                   # *** MODIFIED: Using the new CSS class for the formula box ***
+                   # *** MODIFIED: Updated the formula text for clarity ***
                    box(
                      title = "Formula", status = "info", solidHeader = TRUE, width = 12,
                      div(class = "formula-box",
-                         "Final Value = Base Value × Growth × (1 + Temp + Env)"
+                         "Final Value = Base Value × Growth Mutation × (1 + Temperature Mutation + Environmental Mutations)"
                      )
                    ),
-                   # *** MODIFIED: Using the new CSS class for the solution box ***
                    box(
                      title = "Calculation Breakdown", status = "warning", solidHeader = TRUE, width = 12,
                      uiOutput(ns("solution_ui"))
@@ -81,7 +95,7 @@ calculator_ui <- function(id) {
           fluidRow(
             box(
               title = "Detailed Fruit Data (from local cache)", status = "primary", solidHeader = TRUE, width = 12,
-              collapsible = TRUE, collapsed = TRUE,
+              collapsible = TRUE, collapsed = FALSE, 
               p("This table shows the data currently loaded in the app. Use the 'Fetch Latest' button to update it from the website."),
               DTOutput(ns("fruit_details_table"))
             )
@@ -93,7 +107,7 @@ calculator_ui <- function(id) {
 # =============================================================
 # Server function for the Calculator Module
 # =============================================================
-calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv) {
+calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_data) {
   moduleServer(id, function(input, output, session) {
     
     # --- Render UI Elements ---
@@ -117,6 +131,44 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv) {
                   choices = c("Please select a crop" = "", crop_names),
                   width = "100%")
     })
+    
+    output$env_mutations_ui <- renderUI({
+      non_env_mutations <- c("Wet", "Chilled", "Frozen", "Golden", "Rainbow")
+      env_muts <- mutation_data %>%
+        filter(!name %in% non_env_mutations)
+      choices_list <- setNames(as.list(env_muts$bonus), 
+                               paste0(env_muts$name, " (+", env_muts$bonus, ")"))
+      
+      checkboxGroupInput(session$ns("env_mutations"), 
+                         label = NULL,
+                         choices = choices_list)
+    })
+    
+    # --- Button Logic ---
+    observeEvent(input$max_mutations_button, {
+      shinyjs::addClass(id = "max_mutations_button", class = "button-glow")
+      
+      updateRadioButtons(session, "growth_mutation", selected = 50)
+      updateRadioButtons(session, "temp_mutation", selected = 9)
+      
+      non_env_mutations <- c("Wet", "Chilled", "Frozen", "Golden", "Rainbow")
+      env_muts <- mutation_data %>% filter(!name %in% non_env_mutations)
+      all_env_values <- env_muts$bonus
+      updateCheckboxGroupInput(session, "env_mutations", selected = all_env_values)
+      
+      delay(300, shinyjs::removeClass(id = "max_mutations_button", class = "button-glow"))
+    })
+    
+    observeEvent(input$reset_mutations_button, {
+      shinyjs::addClass(id = "reset_mutations_button", class = "button-glow")
+      
+      updateRadioButtons(session, "growth_mutation", selected = 1)
+      updateRadioButtons(session, "temp_mutation", selected = 0)
+      updateCheckboxGroupInput(session, "env_mutations", selected = character(0))
+      
+      delay(300, shinyjs::removeClass(id = "reset_mutations_button", class = "button-glow"))
+    })
+    
     
     # --- Calculation Logic ---
     final_value <- reactive({
@@ -145,7 +197,6 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv) {
       )
     })
     
-    # *** MODIFIED: Render the solution breakdown UI with the new class ***
     output$solution_ui <- renderUI({
       req(input$selected_crop, nzchar(input$selected_crop))
       
@@ -163,7 +214,6 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv) {
         final_value()
       )
       
-      # Return the string inside the styled div
       div(class = "solution-box", solution_string)
     })
     
@@ -171,12 +221,49 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv) {
       df <- fruit_data_rv()
       req(df)
       
+      df_display <- df %>%
+        mutate(
+          sell_value_num = suppressWarnings(as.numeric(sell_value)),
+          sheckle_price_num = suppressWarnings(as.numeric(gsub(",", "", sheckle_price))),
+          robux_price_num = suppressWarnings(as.numeric(robux_price))
+        )
+      
       datatable(
-        df,
+        df_display,
+        extensions = 'Buttons',
+        class = 'display compact hover',
         rownames = FALSE,
-        colnames = c("Crop", "Rarity", "Type", "Sell Price", "How to Get"),
-        options = list(pageLength = 10, searching = TRUE, scrollX = TRUE)
-      )
+        options = list(
+          dom = 'Bfrtip',
+          buttons = c('copy', 'csv', 'excel', 'pdf'),
+          pageLength = 10,
+          scrollX = TRUE,
+          columnDefs = list(
+            list(visible = FALSE, targets = c("sell_value_num", "sheckle_price_num", "robux_price_num"))
+          )
+        ),
+        colnames = c("Crop Name", "Sheckle Price", "Min Sell Value", "Robux Price", "Stock", "Rarity Tier", "Multi Harvest", "Obtainable")
+      ) %>%
+        formatStyle(
+          'rarity',
+          backgroundColor = styleEqual(
+            c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
+            c('#D3D3D3', '#A9DFBF', '#AED6F1', '#F9E79F', '#F5CBA7', '#EDBB99', '#D2B4DE')
+          )
+        ) %>%
+        formatStyle(
+          'multi_harvest',
+          color = styleEqual(c("Yes", "No"), c('green', 'red')),
+          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+        ) %>%
+        formatStyle(
+          'obtainable',
+          color = styleEqual(c("Yes", "No"), c('green', 'red')),
+          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+        ) %>%
+        formatCurrency('sheckle_price_num', currency = "", digits = 0) %>%
+        formatCurrency('sell_value_num', currency = "", digits = 0) %>%
+        formatCurrency('robux_price_num', currency = "", digits = 0)
     })
     
     # Return the button click as a reactive event
