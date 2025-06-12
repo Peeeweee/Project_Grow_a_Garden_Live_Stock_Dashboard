@@ -116,6 +116,7 @@ fetch_fruit_values <- function() {
     return(df)
   }, error = function(e) {
     message("   ERROR fetching fruit values: ", e$message)
+    showNotification(paste("Failed to fetch fruit values from", values_url), type = "error", duration = 10)
     return(tibble())
   })
 }
@@ -143,6 +144,7 @@ fetch_mutation_data <- function() {
     return(df)
   }, error = function(e) {
     message("   ERROR fetching mutation data: ", e$message)
+    showNotification(paste("Failed to fetch mutation data from", mutations_url), type = "error", duration = 10)
     return(tibble())
   })
 }
@@ -204,74 +206,57 @@ fetch_public_api_data <- function() {
 }
 
 
-# --- ENCYCLOPEDIA SCRAPING FUNCTIONS (ALL FIXED) ---
+# --- ENCYCLOPEDIA SCRAPING FUNCTIONS ---
 
-# --- FIXED ---
-fetch_ign_seed_data <- function() {
-  message("--- Fetching Seed & Crop Data from IGN ---")
-  url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Seed_and_Crop_Guide"
+# Scraper for the detailed seed/crop values page on growagardencalculator.net
+fetch_detailed_seed_data <- function() {
+  message("--- Fetching DETAILED Seed/Crop Data from growagardencalculator.net ---")
+  url <- "https://growagardencalculator.net/grow-a-garden-values"
   
   tryCatch({
     page <- read_html(url)
     all_tables <- page %>% html_nodes("table")
     
-    if (length(all_tables) < 2) stop("Could not find both the permanent and pack seed tables.")
-    
-    # The first table is for permanent seeds
-    perm_table <- all_tables[[1]]
-    
-    # The second table is for pack seeds
-    pack_table <- all_tables[[2]]
-    
-    # --- Process Permanent Seeds Table ---
-    perm_seeds_list <- list()
-    current_rarity <- "Unknown"
-    rows_perm <- perm_table %>% html_nodes("tr")
-    
-    for (row in rows_perm) {
-      header_cell <- row %>% html_node("th[colspan='3']")
-      if (!is.na(header_cell)) {
-        rarity_text <- header_cell %>% html_text(trim = TRUE)
-        current_rarity <- str_replace(rarity_text, "All (.*) Seeds", "\\1")
-        next
-      }
-      cells <- row %>% html_nodes("td")
-      if (length(cells) == 3) {
-        seed_name <- cells[[1]] %>% html_text(trim = TRUE)
-        perm_seeds_list[[length(perm_seeds_list) + 1]] <- tibble(
-          name = seed_name, cost = cells[[2]] %>% html_text(trim = TRUE),
-          harvest_type = cells[[3]] %>% html_text(trim = TRUE), rarity = current_rarity,
-          source = "Seed Shop"
-        )
-      }
+    if (length(all_tables) == 0) {
+      stop("Could not find any tables on the seed/crop values page.")
     }
     
-    # --- Process Pack Seeds Table ---
-    pack_seeds_df <- html_table(pack_table, header = TRUE) %>%
-      rename(name = 1, harvest_type = 2, rarity = 3, source = 4) %>%
-      filter(!is.na(name) & name != "Name of Seed") # Clean up header rows if any
+    # Iterate over every table on the page
+    all_seeds_df <- all_tables %>%
+      map_dfr(function(table_node) {
+        # Get all rows from the current table, skipping the header
+        rows <- table_node %>% html_nodes("tr") %>% tail(-1)
+        
+        # Iterate over each row to extract data cell by cell
+        map_dfr(rows, function(row) {
+          cells <- row %>% html_nodes("td")
+          if (length(cells) != 9) return(NULL) # Safety check for correct number of columns
+          
+          tibble(
+            image_url     = cells[[1]] %>% html_node("img") %>% html_attr("src"),
+            name          = cells[[2]] %>% html_text(trim = TRUE),
+            sheckle_price = cells[[3]] %>% html_text(trim = TRUE),
+            min_value     = cells[[4]] %>% html_text(trim = TRUE),
+            robux_price   = cells[[5]] %>% html_text(trim = TRUE),
+            stock         = cells[[6]] %>% html_text(trim = TRUE),
+            tier          = cells[[7]] %>% html_text(trim = TRUE),
+            multi_harvest = cells[[8]] %>% html_text(trim = TRUE),
+            obtainable    = cells[[9]] %>% html_text(trim = TRUE)
+          )
+        })
+      })
     
-    # --- Combine and Finalize ---
-    all_seeds_df <- bind_rows(perm_seeds_list) %>%
-      bind_rows(pack_seeds_df) %>%
-      mutate(
-        cost_numeric = suppressWarnings(as.numeric(gsub("[^0-9]", "", cost))),
-        harvest_type = if_else(str_detect(tolower(harvest_type), "multiple"), "Multiple", "Single"),
-        image_url = NA_character_ # Image scraping is complex and less critical, can be added later
-      ) %>%
-      distinct(name, .keep_all = TRUE) %>%
-      select(name, rarity, harvest_type, cost_numeric, source, image_url)
-    
-    message("   Seed data scraped successfully for ", nrow(all_seeds_df), " seeds.")
+    message("   Successfully scraped ", nrow(all_seeds_df), " detailed seeds/crops.")
     return(all_seeds_df)
     
   }, error = function(e) {
-    message("   ERROR fetching IGN seed data: ", e$message)
-    return(tibble())
+    message("   ERROR fetching detailed seed data: ", e$message)
+    showNotification(paste("Failed to fetch detailed seed data from", url), type = "error", duration = 10)
+    return(tibble()) # Return an empty tibble on failure
   })
 }
 
-# --- FIXED ---
+# --- FIXED & UPDATED ---
 fetch_ign_gear_data <- function() {
   message("--- Fetching Gear Data from IGN ---")
   url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Gear_Guide"
@@ -317,7 +302,7 @@ fetch_ign_gear_data <- function() {
     if (length(gear_list) == 0) stop("No gear data rows found in the table.")
     
     gear_df <- bind_rows(gear_list) %>%
-      mutate(cost_numeric = suppressWarnings(as.numeric(gsub("[^0-9,]", "", cost)))) %>%
+      mutate(cost_numeric = suppressWarnings(as.numeric(gsub("[^0-9]", "", cost)))) %>%
       select(name, rarity, cost_numeric, description, uses)
     
     message("   Gear data scraped successfully for ", nrow(gear_df), " items.")
@@ -325,104 +310,157 @@ fetch_ign_gear_data <- function() {
     
   }, error = function(e) {
     message("   ERROR fetching IGN gear data: ", e$message)
+    showNotification(paste("Failed to fetch IGN gear data from", url), type = "error", duration = 10)
     return(tibble())
   })
 }
 
-# --- FIXED ---
 fetch_ign_egg_data <- function() {
-  message("--- Fetching Egg & Animal Data from IGN ---")
+  message("--- Fetching Egg & Animal Data from IGN (including chances) ---")
   url <- "https://www.ign.com/wikis/grow-a-garden/The_Animal_Update_-_Pet_Egg_Guide"
   tryCatch({
     page <- read_html(url)
     all_tables <- page %>% html_nodes("table")
     
-    # Identify tables by their unique column headers
-    egg_table_node <- all_tables %>% 
-      keep(~ "Time to Grow" %in% (.x %>% html_nodes("th") %>% html_text())) %>% 
-      first()
-    
-    pet_table_node <- all_tables %>% 
-      keep(~ "Skill" %in% (.x %>% html_nodes("th") %>% html_text())) %>% 
-      first()
-    
-    if (is.null(egg_table_node) || is.null(pet_table_node)) {
-      stop("Could not find both egg and pet tables on the page.")
+    if(length(all_tables) < 12) {
+      stop("Page structure has changed, expected at least 12 tables.")
     }
     
-    egg_df <- html_table(egg_table_node) %>%
-      rename(name = 1, cost = 2, chance_to_appear = 3, num_pets = 4, grow_time = 5) %>%
-      filter(!is.na(name) & name != "Egg Type") %>%
-      mutate(
-        cost_numeric = suppressWarnings(as.numeric(gsub("[^0-9]", "", cost))),
-        type = "Egg"
+    # --- Scrape Pet Traits Table (by position, with manual cleaning) ---
+    message("   Scraping the main 'Pet Traits' table (Table #12)...")
+    pet_traits_table_node <- all_tables[[12]]
+    pet_traits_df <- html_table(pet_traits_table_node, header = FALSE) %>%
+      magrittr::set_colnames(c("name", "rarity", "bonus")) %>%
+      slice(-c(1, 2)) %>%
+      filter(!is.na(name) & name != "")
+    message("   SUCCESS: Scraped ", nrow(pet_traits_df), " pets from the main traits table.")
+    
+    # --- Scrape all Pet Chance tables (by position) ---
+    message("   Scraping all 'Pet Chance' tables...")
+    chance_table_indices <- c(2, 3, 4, 5, 6, 7, 8, 10, 11)
+    chance_tables_list <- all_tables[chance_table_indices]
+    
+    pet_chances_df <- chance_tables_list %>%
+      map_dfr(~{
+        egg_source <- .x %>% html_node("th") %>% html_text(trim = TRUE) %>%
+          str_extract("(?<=from ).*")
+        
+        html_table(.x, header = FALSE) %>%
+          magrittr::set_colnames(c("name", "chance", "collection")) %>%
+          slice(-c(1, 2)) %>%
+          mutate(chance_of_appearing = paste0(chance, " (from ", egg_source, ")")) %>%
+          select(name, chance_of_appearing)
+      }) %>%
+      filter(!is.na(name) & name != "") %>%
+      distinct(name, .keep_all = TRUE)
+    message("   SUCCESS: Scraped and combined ", nrow(pet_chances_df), " pet chances.")
+    
+    # --- Scrape Egg Info Table (by position) ---
+    message("   Scraping the 'Egg Info' table (Table #1)...")
+    egg_df <- html_table(all_tables[[1]], header = TRUE) %>%
+      rename(
+        name = `Egg Type`, 
+        cost = Cost, 
+        chance_to_appear = `Chances to Appear`, 
+        num_pets = `Number of Pet Types`, 
+        grow_time = `Time to Grow`
       ) %>%
-      select(name, type, cost_numeric, chance_to_appear, num_pets, grow_time)
+      filter(!is.na(name) & name != "Egg Type") %>%
+      mutate(type = "Egg")
     
-    pet_df <- html_table(pet_table_node) %>%
-      rename(name = 1, rarity = 2, bonus = 3) %>%
-      filter(!is.na(name) & name != "Animal Type") %>%
-      mutate(type = "Pet") %>%
-      select(name, type, rarity, bonus)
+    # --- Join the datasets ---
+    message("   Joining datasets...")
+    final_pet_df <- left_join(pet_traits_df, pet_chances_df, by = "name")
     
-    message("   Egg & Pet data scraped successfully.")
-    return(list(eggs = egg_df, pets = pet_df))
+    message("   Egg & Pet data scraped and merged successfully.")
+    return(list(eggs = egg_df, pets = final_pet_df))
     
   }, error = function(e) {
     message("   ERROR fetching IGN egg/pet data: ", e$message)
+    showNotification(paste("Failed to fetch IGN egg/pet data from", url), type = "error", duration = 10)
     return(list(eggs = tibble(), pets = tibble()))
   })
 }
 
-# --- FIXED ---
-fetch_ign_weather_mutation_data <- function() {
-  message("--- Fetching Weather & Mutation Data from IGN ---")
-  url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Weather_and_Mutation_Guide"
+fetch_pet_chances_data <- function() {
+  message("--- Fetching Pet Chance Data from growagardencalculator.net ---")
+  url <- "https://growagardencalculator.net/wiki/grow-a-garden-pets-and-animals"
   tryCatch({
-    page <- read_html(url)
-    all_tables <- page %>% html_nodes("table")
+    page_html <- read_html(url)
+    all_tables <- page_html %>% html_nodes("table")
     
-    # Find the weather table by checking for a header containing "All Weather Events"
-    weather_table_node <- all_tables %>%
-      keep(~any(str_detect(.x %>% html_nodes("th") %>% html_text(), "All Weather Events"))) %>%
-      first()
+    if (length(all_tables) == 0) stop("No tables found on the pet chances page.")
     
-    # Find the mutation table by checking for a header of "Mutation"
-    mutation_table_node <- all_tables %>%
-      keep(~any(str_detect(.x %>% html_nodes("th") %>% html_text(), "Mutation"))) %>%
-      first()
+    list_of_dfs <- all_tables %>%
+      map(~{
+        df <- html_table(.x, header = TRUE) %>% mutate(across(everything(), as.character))
+        if (all(c("Animal Type", "Chance of Appearing") %in% names(df))) {
+          df %>%
+            select(name = `Animal Type`, chance_of_appearing = `Chance of Appearing`)
+        } else {
+          NULL
+        }
+      })
     
-    if (is.null(weather_table_node)) stop("Weather table not found on page.")
-    if (is.null(mutation_table_node)) stop("Mutation table not found on page.")
+    chances_df <- list_of_dfs %>%
+      purrr::compact() %>%
+      bind_rows() %>%
+      filter(!is.na(name) & name != "")
     
-    # The weather table is poorly structured, so we manually extract the descriptions
-    # This part is tricky because the descriptions are outside the table. We will skip for now.
-    weather_df <- html_table(weather_table_node, header = FALSE) %>%
-      slice(-1) %>% # Remove the "All Weather Events" header row
-      purrr::map_dfc( ~ .x) %>%
-      tidyr::pivot_longer(everything(), names_to = NULL, values_to = "event") %>%
-      filter(!is.na(event) & nzchar(event)) %>%
-      mutate(effect = "Description not available from this source.") # Placeholder
+    if (nrow(chances_df) > 0) {
+      message("   Pet chance data scraped successfully for ", nrow(chances_df), " pets.")
+    } else {
+      message("   WARNING: No valid pet chance tables were found on the page.")
+    }
     
-    # Scrape the main table and then add descriptions by finding each mutation's header
-    mutations_df <- html_table(mutation_table_node) %>%
-      rename(name = 1, bonus = 2) %>%
-      filter(!is.na(name) & name != "Mutation") %>%
-      mutate(
-        description = map_chr(name, ~{
-          header_id <- paste0(.x, "_Mutation")
-          desc_node <- page %>% 
-            html_node(xpath = paste0("//h2[@id='", header_id, "']/following-sibling::p[1]"))
-          if (!is.na(desc_node)) html_text(desc_node, trim = TRUE) else "No description available."
-        })
-      )
-    
-    message("   Weather & Mutation data scraped successfully.")
-    return(list(weather = weather_df, mutations = mutations_df))
+    return(chances_df)
     
   }, error = function(e) {
-    message("   ERROR fetching IGN weather/mutation data: ", e$message)
-    return(list(weather = tibble(), mutations = tibble()))
+    message("   ERROR fetching pet chance data: ", e$message)
+    showNotification(paste("Failed to fetch pet chance data from", url), type = "error", duration = 10)
+    return(tibble()) # Return empty tibble on error
+  })
+}
+
+# Scraper for the detailed mutations page on growagardencalculator.net
+fetch_detailed_mutations_data <- function() {
+  message("--- Fetching DETAILED Mutation Data from growagardencalculator.net ---")
+  url <- "https://growagardencalculator.net/wiki/grow-a-garden-mutations"
+  
+  tryCatch({
+    page <- read_html(url)
+    table_node <- page %>% html_node("table")
+    
+    if (is.null(table_node) || is.na(table_node)) {
+      stop("Could not find the mutation table on the page.")
+    }
+    
+    # Process rows to extract text and image URLs correctly
+    rows <- table_node %>% html_nodes("tr")
+    
+    mutations_df <- rows %>%
+      tail(-1) %>% # Skip header row
+      map_dfr(function(row) {
+        cells <- row %>% html_nodes("td")
+        
+        if (length(cells) != 5) return(NULL) # Skip malformed rows
+        
+        tibble(
+          name = cells[[1]] %>% html_text(trim = TRUE),
+          icon = cells[[2]] %>% html_node("img") %>% html_attr("src"),
+          multiplier = cells[[3]] %>% html_text(trim = TRUE),
+          stack_bonus = cells[[4]] %>% html_text(trim = TRUE),
+          description = cells[[5]] %>% html_text(trim = TRUE)
+        )
+      })
+    
+    message("   Successfully scraped ", nrow(mutations_df), " detailed mutations.")
+    return(mutations_df)
+    
+  }, error = function(e) {
+    message("   ERROR fetching detailed mutation data: ", e$message)
+    showNotification(paste("Failed to fetch detailed mutation data from", url), type = "error", duration = 10)
+    return(tibble()) # Return an empty tibble on failure
   })
 }
 
@@ -675,11 +713,29 @@ server <- function(input, output, session) {
   
   # Fetch and store all encyclopedia data at startup
   encyclopedia_data <- reactiveVal({
+    # Add a small delay between requests to be more polite to the servers
+    ign_data <- fetch_ign_egg_data()
+    Sys.sleep(1) 
+    pet_chances <- fetch_pet_chances_data()
+    Sys.sleep(1)
+    
+    # Safely join the pet chances to the main pet data
+    if (!is.null(ign_data$pets) && nrow(pet_chances) > 0) {
+      # Note: We only join the 'chance_of_appearing' if it's not already present from the IGN scrape
+      if (!"chance_of_appearing" %in% names(ign_data$pets)) {
+        ign_data$pets <- ign_data$pets %>%
+          left_join(pet_chances, by = "name")
+      }
+    } else if (!is.null(ign_data$pets) && !"chance_of_appearing" %in% names(ign_data$pets)) {
+      # If the scrape fails, add an empty column to prevent errors
+      ign_data$pets$chance_of_appearing <- NA_character_
+    }
+    
     list(
-      seeds = fetch_ign_seed_data(),
+      seeds = fetch_detailed_seed_data(),
       gear = fetch_ign_gear_data(),
-      eggs_and_pets = fetch_ign_egg_data(),
-      weather_and_mutations = fetch_ign_weather_mutation_data()
+      eggs_and_pets = ign_data, # Use the merged data
+      mutations = fetch_detailed_mutations_data()
     )
   })
   
@@ -1276,49 +1332,41 @@ encyclopedia_ui <- function(id) {
               .wiki-table .rarity-header-Mythical { background-color: #E67E22; }
               .wiki-table .rarity-header-Divine { background-color: #C0392B; }
               .wiki-table .rarity-header-Prismatic { background: linear-gradient(45deg, #f3ec78, #af4261); }
-              .wiki-table .rarity-header-Unavailable { background-color: #333333; color: white; border: 1px solid #555; } /* NEW STYLE */
+              .wiki-table .rarity-header-Unavailable { background-color: #333333; color: white; border: 1px solid #555; }
               .wiki-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
             "))
           ),
           
           h2("Grow a Garden Encyclopedia of Knowledge"),
-          p("An exhaustive collection of all items, creatures, and phenomena in the game, sourced from the IGN Grow a Garden Wiki."),
+          p("An exhaustive collection of all items, creatures, and phenomena in the game."),
           
           tabBox(
             id = ns("encyclopedia_tabs"),
             width = 12,
             title = "Categories",
             
+            # --- MODIFIED SEEDS & CROPS TAB ---
             tabPanel("Seeds & Crops", icon = icon("seedling"),
-                     div(class="encyclopedia-section-header", h3("Available Seeds & Crops in Store")),
-                     p("This section shows seeds that are available for purchase with Sheckles in the main Seed Shop."),
-                     uiOutput(ns("store_seed_tables_ui")),
-                     hr(),
-                     div(class="encyclopedia-section-header", h3("List of All Seed Packs")),
-                     p("This is a reference list of seeds obtainable from Seed Packs and special events."),
-                     uiOutput(ns("pack_seed_tables_ui"))
+                     div(class="encyclopedia-section-header", h3("Master Seed & Crop List")),
+                     p("A comprehensive list of all seeds and crops. Sourced from growagardencalculator.net."),
+                     DTOutput(ns("seeds_table_detailed"))
             ),
-            # --- UI CHANGE: Gear tab now uses a simple uiOutput for the new tables ---
             tabPanel("Gear", icon = icon("cogs"),
                      uiOutput(ns("gear_tables_ui"))
             ),
             tabPanel("Eggs & Animals", icon = icon("egg"),
                      div(class="encyclopedia-section-header", h3("Pet Eggs")),
                      p("Eggs that can be purchased or found to hatch into helpful pets."),
-                     uiOutput(ns("egg_cards_ui")),
+                     uiOutput(ns("egg_table_ui")),
                      hr(),
                      div(class="encyclopedia-section-header", h3("Hatchable Pets")),
                      p("Pets that can be hatched from the eggs listed above, providing unique bonuses."),
-                     uiOutput(ns("pet_cards_ui"))
+                     uiOutput(ns("pet_tables_ui"))
             ),
-            tabPanel("Weather & Mutations", icon = icon("cloud-sun-rain"),
-                     div(class="encyclopedia-section-header", h3("Weather Events")),
-                     p("Weather events that can occur, affecting crop growth and mutation chances."),
-                     DTOutput(ns("weather_table")),
-                     hr(),
-                     div(class="encyclopedia-section-header", h3("Mutations")),
-                     p("All possible mutations and their effects on your crops."),
-                     DTOutput(ns("mutations_table"))
+            tabPanel("Weather & Mutations", icon = icon("dna"),
+                     div(class="encyclopedia-section-header", h3("Mutation List")),
+                     p("A comprehensive list of all mutations, their effects, and bonuses. Sourced from growagardencalculator.net."),
+                     DTOutput(ns("mutations_table_detailed"))
             )
           )
   )
@@ -1331,123 +1379,79 @@ encyclopedia_ui <- function(id) {
 encyclopedia_server <- function(id, all_encyclopedia_data) {
   moduleServer(id, function(input, output, session) {
     
-    # --- SEED & CROP LOGIC (Two-Table Layout) ---
-    
-    # 1. UI for Available Store Seeds
-    output$store_seed_tables_ui <- renderUI({
-      df <- all_encyclopedia_data()$seeds
-      req(df)
-      df_store <- df %>% filter(!is.na(cost_numeric))
-      if (nrow(df_store) == 0) return(p("No store-based seeds found.", style = "text-align:center; color: #999;"))
-      
-      rarity_levels <- c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic")
-      df_store$rarity <- factor(df_store$rarity, levels = intersect(rarity_levels, unique(df_store$rarity)))
-      
-      grouped_df <- df_store %>% arrange(rarity, cost_numeric) %>% group_by(rarity) %>% summarise(data = list(cur_data()), .groups = 'drop')
-      
-      tables_list <- lapply(1:nrow(grouped_df), function(i) {
-        current_rarity <- grouped_df$rarity[[i]]; current_data <- grouped_df$data[[i]]
-        header_class <- paste0("rarity-header-", current_rarity)
-        table_rows <- lapply(1:nrow(current_data), function(j) {
-          tags$tr(
-            tags$td(current_data$name[j]),
-            tags$td(paste(format(current_data$cost_numeric[j], big.mark = ","), "Sheckles")),
-            tags$td(current_data$harvest_type[j])
-          )
-        })
-        tags$table(class = "wiki-table",
-                   tags$thead(
-                     tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Seeds"))),
-                     tags$tr(tags$th("Name of Seed"), tags$th("Cost"), tags$th("Amount of Harvests"))
-                   ),
-                   tags$tbody(table_rows)
-        )
-      })
-      tagList(tables_list)
-    })
-    
-    # 2. UI for Seed Pack Table
-    output$pack_seed_tables_ui <- renderUI({
+    # --- NEW MASTER SEED & CROP TABLE LOGIC ---
+    output$seeds_table_detailed <- renderDT({
       df <- all_encyclopedia_data()$seeds
       req(df)
       
-      # SPLIT the data into normal and unavailable pack seeds
-      df_packs_normal <- df %>% filter(is.na(cost_numeric) & rarity != "N/A")
-      df_packs_unavailable <- df %>% filter(is.na(cost_numeric) & rarity == "N/A")
-      
-      normal_tables_list <- NULL
-      if (nrow(df_packs_normal) > 0) {
-        rarity_levels <- c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic")
-        df_packs_normal$rarity <- factor(df_packs_normal$rarity, levels = intersect(rarity_levels, unique(df_packs_normal$rarity)))
-        grouped_df <- df_packs_normal %>% arrange(rarity) %>% group_by(rarity) %>% summarise(data = list(cur_data()), .groups = 'drop')
-        
-        normal_tables_list <- lapply(1:nrow(grouped_df), function(i) {
-          current_rarity <- grouped_df$rarity[[i]]; current_data <- grouped_df$data[[i]]
-          header_class <- paste0("rarity-header-", current_rarity)
-          table_rows <- lapply(1:nrow(current_data), function(j) {
-            tags$tr(
-              tags$td(current_data$name[j]),
-              tags$td(current_data$harvest_type[j]),
-              tags$td(current_data$source[j])
-            )
-          })
-          tags$table(class = "wiki-table",
-                     tags$thead(
-                       tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Seeds"))),
-                       tags$tr(tags$th("Name of Seed"), tags$th("Amount of Harvests"), tags$th("Source"))
-                     ),
-                     tags$tbody(table_rows)
-          )
-        })
-      }
-      
-      unavailable_table <- NULL
-      if (nrow(df_packs_unavailable) > 0) {
-        table_rows <- lapply(1:nrow(df_packs_unavailable), function(j) {
-          tags$tr(
-            tags$td(df_packs_unavailable$name[j]),
-            tags$td(df_packs_unavailable$harvest_type[j]),
-            tags$td(df_packs_unavailable$source[j])
-          )
-        })
-        unavailable_table <- tags$table(class = "wiki-table",
-                                        tags$thead(
-                                          tags$tr(tags$th(class = "rarity-header-Unavailable", colspan = "3", "All Unavailable Seeds")),
-                                          tags$tr(tags$th("Name of Seed"), tags$th("Amount of Harvests"), tags$th("Source"))
-                                        ),
-                                        tags$tbody(table_rows)
+      df_display <- df %>%
+        mutate(
+          Image = paste0('<img src="', image_url, '" height="50" alt="', name, '">'),
+          # Clean up numeric columns for proper sorting in DT
+          sheckle_price_num = suppressWarnings(as.numeric(gsub(",", "", sheckle_price))),
+          min_value_num = suppressWarnings(as.numeric(gsub(",", "", min_value))),
+          robux_price_num = suppressWarnings(as.numeric(gsub(",", "", robux_price)))
+        ) %>%
+        select(
+          Image,
+          `Crop Name` = name,
+          `Sheckle Price` = sheckle_price,
+          `Min Value` = min_value,
+          `Robux Price` = robux_price,
+          Stock = stock,
+          Tier = tier,
+          `Multi Harvest` = multi_harvest,
+          Obtainable = obtainable,
+          # Include numeric columns for sorting, but they will be hidden
+          sheckle_price_num, min_value_num, robux_price_num
         )
-      }
       
-      if (is.null(normal_tables_list) && is.null(unavailable_table)) {
-        return(p("No pack-based seeds found.", style = "text-align:center; color: #999;"))
-      }
-      
-      tagList(normal_tables_list, unavailable_table)
+      datatable(
+        df_display,
+        escape = FALSE, # Render image HTML
+        options = list(
+          pageLength = 25,
+          scrollX = TRUE,
+          columnDefs = list(
+            list(className = 'dt-center', targets = c(0, 5, 6, 7, 8)), # Center some columns
+            # Hide the raw numeric columns
+            list(visible = FALSE, targets = c("sheckle_price_num", "min_value_num", "robux_price_num"))
+          )
+        ),
+        rownames = FALSE
+      ) %>%
+        formatStyle(
+          'Tier',
+          backgroundColor = styleEqual(
+            c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
+            c('#D3D3D3', '#A9DFBF', '#AED6F1', '#F9E79F', '#F5CBA7', '#EDBB99', '#D2B4DE')
+          )
+        ) %>%
+        formatStyle(
+          c('Multi Harvest', 'Obtainable'),
+          color = styleEqual(c("Yes", "No"), c('green', 'red')),
+          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+        )
     })
     
-    # --- SERVER CHANGE: Replaced gear card logic with gear table logic ---
+    # --- Gear table logic ---
     output$gear_tables_ui <- renderUI({
       df <- all_encyclopedia_data()$gear
       req(df, nrow(df) > 0)
       
-      # Define rarity order for correct sorting
       rarity_levels <- c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic")
       df$rarity <- factor(df$rarity, levels = intersect(rarity_levels, unique(df$rarity)))
       
-      # Group data by rarity
       grouped_df <- df %>% 
         arrange(rarity, cost_numeric) %>% 
         group_by(rarity) %>% 
         summarise(data = list(cur_data()), .groups = 'drop')
       
-      # Loop through each rarity group and create a table
       tables_list <- lapply(1:nrow(grouped_df), function(i) {
         current_rarity <- grouped_df$rarity[[i]]
         current_data <- grouped_df$data[[i]]
         header_class <- paste0("rarity-header-", current_rarity)
         
-        # Create the rows for the current table
         table_rows <- lapply(1:nrow(current_data), function(j) {
           tags$tr(
             tags$td(current_data$name[j]),
@@ -1463,7 +1467,6 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
           )
         })
         
-        # Assemble the full table
         tags$table(class = "wiki-table",
                    tags$thead(
                      tags$tr(tags$th(class = header_class, colspan = "4", current_rarity)),
@@ -1482,55 +1485,105 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
     })
     
     # --- EGG & ANIMAL LOGIC ---
-    output$egg_cards_ui <- renderUI({
+    
+    output$egg_table_ui <- renderUI({
       df <- all_encyclopedia_data()$eggs_and_pets$eggs
       req(df, nrow(df) > 0)
       
-      # Note: This UI expects columns that may not be in the scraped data.
-      # We use `%||% "N/A"` to prevent errors if a column is missing.
-      cards <- lapply(1:nrow(df), function(i) {
-        tags$div(class = "col-md-3",
-                 tags$div(class = "encyclopedia-card",
-                          tags$h4(df$name[i]),
-                          tags$p(class = "card-details", strong("Cost: "), df$cost[i] %||% "N/A"),
-                          tags$p(class = "card-details", strong("Appear Chance: "), df$chance_to_appear[i] %||% "N/A"),
-                          tags$p(class = "card-details", strong("Grow Time: "), df$grow_time[i] %||% "N/A")
+      tags$table(class = "wiki-table",
+                 tags$thead(
+                   tags$tr(
+                     tags$th("Egg Type"), tags$th("Cost"), tags$th("Chances to Appear"),
+                     tags$th("Number of Pet Types"), tags$th("Time to Grow")
+                   )
+                 ),
+                 tags$tbody(
+                   lapply(1:nrow(df), function(i) {
+                     tags$tr(
+                       tags$td(df$name[i]),
+                       tags$td(HTML(df$cost[i])),
+                       tags$td(df$chance_to_appear[i]),
+                       tags$td(df$num_pets[i]),
+                       tags$td(df$grow_time[i])
+                     )
+                   })
                  )
-        )
-      })
-      fluidRow(cards)
+      )
     })
     
-    output$pet_cards_ui <- renderUI({
+    output$pet_tables_ui <- renderUI({
       df <- all_encyclopedia_data()$eggs_and_pets$pets
       req(df, nrow(df) > 0)
       
-      cards <- lapply(1:nrow(df), function(i) {
-        tags$div(class = "col-md-4",
-                 tags$div(class = "encyclopedia-card",
-                          tags$h4(df$name[i]),
-                          tags$p(class = "card-details", strong("Rarity: "), df$rarity[i] %||% "N/A"),
-                          tags$p(class = "card-details", style = "margin-top: 10px;", 
-                                 strong("Bonus: "), df$bonus[i] %||% "N/A")
-                 )
+      rarity_levels <- c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic")
+      df$rarity <- factor(df$rarity, levels = intersect(rarity_levels, unique(df$rarity)))
+      
+      grouped_df <- df %>%
+        filter(!is.na(rarity)) %>%
+        arrange(rarity) %>%
+        group_by(rarity) %>%
+        summarise(data = list(cur_data()), .groups = 'drop')
+      
+      tables_list <- lapply(1:nrow(grouped_df), function(i) {
+        current_rarity <- as.character(grouped_df$rarity[[i]])
+        current_data <- grouped_df$data[[i]]
+        header_class <- paste0("rarity-header-", current_rarity)
+        
+        table_rows <- lapply(1:nrow(current_data), function(j) {
+          chance_value <- current_data$chance_of_appearing[j]
+          display_chance <- if (is.na(chance_value) || chance_value == "") "Not Listed" else chance_value
+          
+          tags$tr(
+            tags$td(current_data$name[j]),
+            tags$td(current_data$bonus[j]),
+            tags$td(display_chance)
+          )
+        })
+        
+        tags$table(class = "wiki-table",
+                   tags$thead(
+                     tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Pets"))),
+                     tags$tr(
+                       tags$th("Pet Name"),
+                       tags$th("Bonus"),
+                       tags$th("Chance of Appearing")
+                     )
+                   ),
+                   tags$tbody(table_rows)
         )
       })
-      fluidRow(cards)
+      
+      tagList(tables_list)
     })
     
-    # --- WEATHER & MUTATION LOGIC ---
-    output$weather_table <- renderDT({
-      df <- all_encyclopedia_data()$weather_and_mutations$weather
+    # --- NEW DETAILED MUTATION TABLE LOGIC ---
+    output$mutations_table_detailed <- renderDT({
+      df <- all_encyclopedia_data()$mutations
       req(df)
-      datatable(df, options = list(dom = 't', paging = FALSE, ordering = FALSE), rownames = FALSE,
-                colnames = c("Weather Event", "Effect"))
-    })
-    
-    output$mutations_table <- renderDT({
-      df <- all_encyclopedia_data()$weather_and_mutations$mutations
-      req(df)
-      datatable(df, options = list(pageLength = 10, dom = 'ftp'), rownames = FALSE,
-                colnames = c("Mutation Name", "Bonus", "Effect"))
+      
+      # Prepare the data for display, creating an HTML image tag for the icon
+      df_display <- df %>%
+        mutate(
+          Icon = paste0('<img src="', icon, '" height="40" alt="', name, '">')
+        ) %>%
+        select(
+          `Mutation Name` = name,
+          Icon,
+          Multiplier = multiplier,
+          `Stack Bonus` = stack_bonus,
+          Description = description
+        )
+      
+      datatable(
+        df_display,
+        # IMPORTANT: escape = FALSE tells DT to render the HTML for the image
+        escape = FALSE, 
+        options = list(pageLength = 15, dom = 'ftp',
+                       columnDefs = list(
+                         list(className = 'dt-center', targets = 1) # Center the icon column
+                       )),
+        rownames = FALSE
+      )
     })
     
   })
