@@ -2,6 +2,7 @@ PROJECT DIRECTORY TREE (Filtered View)
 (Common config/temporary files like .Rproj.user, .git, .Rhistory are hidden for clarity)
 ======================================================================
 C:/Users/Paulo/Documents/Grow_a_Garden_-_Live_Stock_Dashboard
+├── api_data_cache.rds
 ├── app.R
 ├── calculator_module.R
 ├── consolidate_project.R
@@ -11,6 +12,10 @@ C:/Users/Paulo/Documents/Grow_a_Garden_-_Live_Stock_Dashboard
 ├── Grow_a_Garden_-_Live_Stock_Dashboard.Rproj
 ├── history_module.R
 ├── project_snapshot.txt
+├── rsconnect
+│   └── shinyapps.io
+│       └── delgadoearlpaulo
+│           └── grow_a_garden_-_live_stock_dashboard.dcf
 └── vulcan_stock_history.csv
 
 
