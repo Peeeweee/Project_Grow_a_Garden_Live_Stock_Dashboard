@@ -34,15 +34,20 @@ encyclopedia_ui <- function(id) {
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
               }
               .wiki-table th, .wiki-table td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
-              .wiki-table thead th { color: white; font-weight: bold; font-size: 1.1em; text-align: center; }
-              .wiki-table .rarity-header-Common { background-color: #A9A9A9; }
-              .wiki-table .rarity-header-Uncommon { background-color: #27AE60; }
-              .wiki-table .rarity-header-Rare { background-color: #2980B9; }
-              .wiki-table .rarity-header-Legendary { background-color: #F1C40F; color: #333; }
-              .wiki-table .rarity-header-Mythical { background-color: #E67E22; }
-              .wiki-table .rarity-header-Divine { background-color: #C0392B; }
-              .wiki-table .rarity-header-Prismatic { background: linear-gradient(45deg, #f3ec78, #af4261); }
-              .wiki-table .rarity-header-Unavailable { background-color: #333333; color: white; border: 1px solid #555; }
+              
+              /* --- NEW: Make all table headers black by default --- */
+              .wiki-table thead th { color: black; font-weight: bold; font-size: 1.1em; text-align: center; }
+              
+              /* --- MODIFIED: Added !important to ensure text color is applied --- */
+              .wiki-table .rarity-header-Common { background-color: #A9A9A9; color: white !important; }
+              .wiki-table .rarity-header-Uncommon { background-color: #27AE60; color: white !important; }
+              .wiki-table .rarity-header-Rare { background-color: #2980B9; color: white !important; }
+              .wiki-table .rarity-header-Legendary { background-color: #F1C40F; color: #333 !important; }
+              .wiki-table .rarity-header-Mythical { background-color: #E67E22; color: white !important; }
+              .wiki-table .rarity-header-Divine { background-color: #C0392B; color: white !important; }
+              .wiki-table .rarity-header-Prismatic { background: linear-gradient(45deg, #f3ec78, #af4261); color: white !important; }
+              .wiki-table .rarity-header-Unavailable { background-color: #333333; color: white !important; border: 1px solid #555; }
+              
               .wiki-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
             "))
           ),
