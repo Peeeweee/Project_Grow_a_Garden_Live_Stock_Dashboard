@@ -35,10 +35,8 @@ encyclopedia_ui <- function(id) {
               }
               .wiki-table th, .wiki-table td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
               
-              /* --- NEW: Make all table headers black by default --- */
               .wiki-table thead th { color: black; font-weight: bold; font-size: 1.1em; text-align: center; }
               
-              /* --- MODIFIED: Added !important to ensure text color is applied --- */
               .wiki-table .rarity-header-Common { background-color: #A9A9A9; color: white !important; }
               .wiki-table .rarity-header-Uncommon { background-color: #27AE60; color: white !important; }
               .wiki-table .rarity-header-Rare { background-color: #2980B9; color: white !important; }
@@ -60,7 +58,6 @@ encyclopedia_ui <- function(id) {
             width = 12,
             title = "Categories",
             
-            # --- MODIFIED SEEDS & CROPS TAB ---
             tabPanel("Seeds & Crops", icon = icon("seedling"),
                      div(class="encyclopedia-section-header", h3("Master Seed & Crop List")),
                      p("A comprehensive list of all seeds and crops. Sourced from growagardencalculator.net."),
@@ -94,7 +91,7 @@ encyclopedia_ui <- function(id) {
 encyclopedia_server <- function(id, all_encyclopedia_data) {
   moduleServer(id, function(input, output, session) {
     
-    # --- NEW MASTER SEED & CROP TABLE LOGIC ---
+    # --- Seeds & Crops Table ---
     output$seeds_table_detailed <- renderDT({
       df <- all_encyclopedia_data()$seeds
       req(df)
@@ -102,37 +99,33 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       df_display <- df %>%
         mutate(
           Image = paste0('<img src="', image_url, '" height="50" alt="', name, '">'),
-          # Clean up numeric columns for proper sorting in DT
           sheckle_price_num = suppressWarnings(as.numeric(gsub(",", "", sheckle_price))),
           min_value_num = suppressWarnings(as.numeric(gsub(",", "", min_value))),
           robux_price_num = suppressWarnings(as.numeric(gsub(",", "", robux_price)))
         ) %>%
         select(
           Image,
-          `Crop Name` = name,
-          `Sheckle Price` = sheckle_price,
-          `Min Value` = min_value,
-          `Robux Price` = robux_price,
-          Stock = stock,
-          Tier = tier,
-          `Multi Harvest` = multi_harvest,
-          Obtainable = obtainable,
-          # Include numeric columns for sorting, but they will be hidden
+          `Crop Name` = name, `Sheckle Price` = sheckle_price, `Min Value` = min_value,
+          `Robux Price` = robux_price, Stock = stock, Tier = tier,
+          `Multi Harvest` = multi_harvest, Obtainable = obtainable,
           sheckle_price_num, min_value_num, robux_price_num
         )
       
       datatable(
         df_display,
-        escape = FALSE, # Render image HTML
+        escape = FALSE,
+        # *** MODIFICATION START: Disable pagination and add vertical scroll ***
         options = list(
-          pageLength = 25,
+          paging = FALSE,       # Disable pagination to show all rows
+          dom = 'ft',           # Show only filter and table
+          scrollY = "600px",    # Add vertical scroll
           scrollX = TRUE,
           columnDefs = list(
-            list(className = 'dt-center', targets = c(0, 5, 6, 7, 8)), # Center some columns
-            # Hide the raw numeric columns
+            list(className = 'dt-center', targets = c(0, 5, 6, 7, 8)),
             list(visible = FALSE, targets = c("sheckle_price_num", "min_value_num", "robux_price_num"))
           )
         ),
+        # *** MODIFICATION END ***
         rownames = FALSE
       ) %>%
         formatStyle(
@@ -149,7 +142,7 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
         )
     })
     
-    # --- Gear table logic ---
+    # --- Gear table logic (No changes needed, already shows all) ---
     output$gear_tables_ui <- renderUI({
       df <- all_encyclopedia_data()$gear
       req(df, nrow(df) > 0)
@@ -173,9 +166,7 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
             tags$td(
               if (!is.na(current_data$cost_numeric[j])) {
                 paste(format(current_data$cost_numeric[j], big.mark = ","), "Sheckles")
-              } else {
-                "N/A"
-              }
+              } else { "N/A" }
             ),
             tags$td(current_data$description[j]),
             tags$td(current_data$uses[j])
@@ -186,10 +177,8 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
                    tags$thead(
                      tags$tr(tags$th(class = header_class, colspan = "4", current_rarity)),
                      tags$tr(
-                       tags$th("Tool"), 
-                       tags$th("Cost"), 
-                       tags$th("Use"), 
-                       tags$th("Number of Uses")
+                       tags$th("Tool"), tags$th("Cost"), 
+                       tags$th("Use"), tags$th("Number of Uses")
                      )
                    ),
                    tags$tbody(table_rows)
@@ -199,30 +188,21 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       tagList(tables_list)
     })
     
-    # --- EGG & ANIMAL LOGIC ---
-    
+    # --- EGG & ANIMAL LOGIC (No changes needed, already shows all) ---
     output$egg_table_ui <- renderUI({
       df <- all_encyclopedia_data()$eggs_and_pets$eggs
       req(df, nrow(df) > 0)
-      
       tags$table(class = "wiki-table",
-                 tags$thead(
+                 tags$thead(tags$tr(
+                   tags$th("Egg Type"), tags$th("Cost"), tags$th("Chances to Appear"),
+                   tags$th("Number of Pet Types"), tags$th("Time to Grow")
+                 )),
+                 tags$tbody(lapply(1:nrow(df), function(i) {
                    tags$tr(
-                     tags$th("Egg Type"), tags$th("Cost"), tags$th("Chances to Appear"),
-                     tags$th("Number of Pet Types"), tags$th("Time to Grow")
+                     tags$td(df$name[i]), tags$td(HTML(df$cost[i])), tags$td(df$chance_to_appear[i]),
+                     tags$td(df$num_pets[i]), tags$td(df$grow_time[i])
                    )
-                 ),
-                 tags$tbody(
-                   lapply(1:nrow(df), function(i) {
-                     tags$tr(
-                       tags$td(df$name[i]),
-                       tags$td(HTML(df$cost[i])),
-                       tags$td(df$chance_to_appear[i]),
-                       tags$td(df$num_pets[i]),
-                       tags$td(df$grow_time[i])
-                     )
-                   })
-                 )
+                 }))
       )
     })
     
@@ -234,10 +214,8 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       df$rarity <- factor(df$rarity, levels = intersect(rarity_levels, unique(df$rarity)))
       
       grouped_df <- df %>%
-        filter(!is.na(rarity)) %>%
-        arrange(rarity) %>%
-        group_by(rarity) %>%
-        summarise(data = list(cur_data()), .groups = 'drop')
+        filter(!is.na(rarity)) %>% arrange(rarity) %>%
+        group_by(rarity) %>% summarise(data = list(cur_data()), .groups = 'drop')
       
       tables_list <- lapply(1:nrow(grouped_df), function(i) {
         current_rarity <- as.character(grouped_df$rarity[[i]])
@@ -247,7 +225,6 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
         table_rows <- lapply(1:nrow(current_data), function(j) {
           chance_value <- current_data$chance_of_appearing[j]
           display_chance <- if (is.na(chance_value) || chance_value == "") "Not Listed" else chance_value
-          
           tags$tr(
             tags$td(current_data$name[j]),
             tags$td(current_data$bonus[j]),
@@ -258,11 +235,7 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
         tags$table(class = "wiki-table",
                    tags$thead(
                      tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Pets"))),
-                     tags$tr(
-                       tags$th("Pet Name"),
-                       tags$th("Bonus"),
-                       tags$th("Chance of Appearing")
-                     )
+                     tags$tr(tags$th("Pet Name"), tags$th("Bonus"), tags$th("Chance of Appearing"))
                    ),
                    tags$tbody(table_rows)
         )
@@ -271,32 +244,33 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       tagList(tables_list)
     })
     
-    # --- NEW DETAILED MUTATION TABLE LOGIC ---
+    # --- Mutations Table ---
     output$mutations_table_detailed <- renderDT({
       df <- all_encyclopedia_data()$mutations
       req(df)
       
-      # Prepare the data for display, creating an HTML image tag for the icon
       df_display <- df %>%
         mutate(
           Icon = paste0('<img src="', icon, '" height="40" alt="', name, '">')
         ) %>%
         select(
-          `Mutation Name` = name,
-          Icon,
-          Multiplier = multiplier,
-          `Stack Bonus` = stack_bonus,
-          Description = description
+          `Mutation Name` = name, Icon, Multiplier = multiplier,
+          `Stack Bonus` = stack_bonus, Description = description
         )
       
       datatable(
         df_display,
-        # IMPORTANT: escape = FALSE tells DT to render the HTML for the image
         escape = FALSE, 
-        options = list(pageLength = 15, dom = 'ftp',
-                       columnDefs = list(
-                         list(className = 'dt-center', targets = 1) # Center the icon column
-                       )),
+        # *** MODIFICATION START: Disable pagination and add vertical scroll ***
+        options = list(
+          paging = FALSE,       # Disable pagination to show all rows
+          dom = 'ft',           # Show only filter and table
+          scrollY = "600px",    # Add vertical scroll
+          columnDefs = list(
+            list(className = 'dt-center', targets = 1)
+          )
+        ),
+        # *** MODIFICATION END ***
         rownames = FALSE
       )
     })

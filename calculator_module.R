@@ -1,6 +1,6 @@
 # --- START FILE: calculator_module.R ---
-  
-  # =============================================================
+
+# =============================================================
 # UI function for the Calculator Module
 # =============================================================
 calculator_ui <- function(id) {
@@ -77,7 +77,6 @@ calculator_ui <- function(id) {
                          valueBoxOutput(ns("calculated_value_box"), width = 12)
                      )
                    ),
-                   # *** MODIFIED: Updated the formula text for clarity ***
                    box(
                      title = "Formula", status = "info", solidHeader = TRUE, width = 12,
                      div(class = "formula-box",
@@ -225,8 +224,25 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         mutate(
           sell_value_num = suppressWarnings(as.numeric(sell_value)),
           sheckle_price_num = suppressWarnings(as.numeric(gsub(",", "", sheckle_price))),
-          robux_price_num = suppressWarnings(as.numeric(robux_price))
-        )
+          robux_price_num = suppressWarnings(as.numeric(gsub(",", "", robux_price)))
+        ) %>%
+        select(
+          "Crop Name" = name,
+          "Sheckle Price" = sheckle_price,
+          "Min Sell Value" = sell_value,
+          "Robux Price" = robux_price,
+          "Stock" = stock,
+          "Rarity Tier" = rarity,
+          "Multi Harvest" = multi_harvest,
+          "Obtainable" = obtainable,
+          sell_value_num, sheckle_price_num, robux_price_num
+        ) %>%
+        # *** MODIFICATION START: Standardize empty-like values to "Unknown" ***
+        mutate(across(
+          c("Sheckle Price", "Min Sell Value", "Robux Price", "Stock"),
+          ~ if_else(is.na(.) | . %in% c("", "0", "None", "N/A"), "Unknown", as.character(.))
+        ))
+      # *** MODIFICATION END ***
       
       datatable(
         df_display,
@@ -234,30 +250,31 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         class = 'display compact hover',
         rownames = FALSE,
         options = list(
-          dom = 'Bfrtip',
-          buttons = c('copy', 'csv', 'excel', 'pdf'),
-          pageLength = 10,
+          paging = FALSE,      # Disable pagination to show all rows.
+          dom = 'Bfrt',        # 'Bfrt' = Buttons, filter, processing, table.
+          scrollY = "600px",   # Adds a vertical scrollbar.
           scrollX = TRUE,
+          buttons = c('copy', 'csv', 'excel', 'pdf'),
           columnDefs = list(
+            # Hide the raw numeric columns used for sorting
             list(visible = FALSE, targets = c("sell_value_num", "sheckle_price_num", "robux_price_num"))
           )
-        ),
-        colnames = c("Crop Name", "Sheckle Price", "Min Sell Value", "Robux Price", "Stock", "Rarity Tier", "Multi Harvest", "Obtainable")
+        )
       ) %>%
         formatStyle(
-          'rarity',
+          'Rarity Tier',
           backgroundColor = styleEqual(
             c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
             c('#D3D3D3', '#A9DFBF', '#AED6F1', '#F9E79F', '#F5CBA7', '#EDBB99', '#D2B4DE')
           )
         ) %>%
         formatStyle(
-          'multi_harvest',
+          'Multi Harvest',
           color = styleEqual(c("Yes", "No"), c('green', 'red')),
           fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
         ) %>%
         formatStyle(
-          'obtainable',
+          'Obtainable',
           color = styleEqual(c("Yes", "No"), c('green', 'red')),
           fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
         ) %>%
@@ -275,5 +292,4 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
     
   })
 }
-
 # --- END FILE: calculator_module.R ---
