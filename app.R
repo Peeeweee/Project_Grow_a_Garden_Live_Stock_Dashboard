@@ -500,6 +500,9 @@ server <- function(input, output, session) {
     shinyjs::show("loading-overlay")
     message("fetch_data() triggered. Status: fetching")
     
+    # Store old timers to check if a reset happened
+    old_timers <- isolate(timers_rv())
+    
     data <- fetch_public_api_data()
     
     if (!is.null(data$error)) {
@@ -508,6 +511,19 @@ server <- function(input, output, session) {
     
     scraped_data(data)
     timers_rv(data$timers)
+    
+    # --- MODIFICATION: Schedule the 40-second follow-up refresh ---
+    # Check if the Seed Stock timer specifically was low before and is high now
+    seed_timer_was_low <- !is.null(old_timers$`Seed Stock`) && old_timers$`Seed Stock` <= 1
+    seed_timer_is_high <- !is.null(data$timers$`Seed Stock`) && data$timers$`Seed Stock` > 260 # 4:20
+    
+    if (seed_timer_was_low && seed_timer_is_high) {
+      message("Seed/Gear timer was just reset. Scheduling a 40-second follow-up refresh.")
+      shinyjs::delay(40000, shinyjs::runjs(
+        # We use a namespaced input ID and Math.random() to ensure the event always fires
+        paste0("Shiny.setInputValue('", session$ns("special_refresh_trigger"), "', Math.random(), {priority: 'event'});")
+      ))
+    }
     
     # If fetch was successful, append the new data to the history file
     if (is.null(data$error) && length(data$stocks) > 0) {
@@ -529,30 +545,36 @@ server <- function(input, output, session) {
   # Initial data fetch when the app starts
   fetch_data()
   
+  # --- MODIFICATION: New observer for the special 40-second refresh ---
+  observeEvent(input$special_refresh_trigger, {
+    message("40-second follow-up refresh triggered for Seed/Gear.")
+    showNotification("Performing 40-second follow-up refresh...", type="message", duration=4)
+    fetch_data()
+  })
+  
   # --- Timer and Refresh Logic ---
-  # This observer ticks every second to countdown the timers.
+  # This observer ticks every second to countdown the timers and triggers the MAIN refresh at 0:00
   observe({ 
-    req(SharedState$status == "idle")
+    req(SharedState$status == "idle") 
     invalidateLater(1000, session)
-    if (!is.null(isolate(scraped_data()$error))) return() # Stop countdown if there's an error
+    if (!is.null(isolate(scraped_data()$error))) return() 
     
     temp_timers <- isolate(timers_rv())
     if (length(temp_timers) == 0) return()
     
-    refresh_needed <- FALSE
+    # Decrement all timers
     for (name in names(temp_timers)) {
       if (is.numeric(temp_timers[[name]]) && !is.na(temp_timers[[name]]) && temp_timers[[name]] > 0) {
         temp_timers[[name]] <- temp_timers[[name]] - 1
-        if (temp_timers[[name]] <= 0) refresh_needed <- TRUE
       }
     }
+    timers_rv(temp_timers) # Update the reactive value with the new decremented times
     
-    if (refresh_needed) {
-      message("A timer hit zero. Triggering auto-refresh.")
-      showNotification("A timer finished! Auto-refreshing...", type="warning", duration=5)
+    # Check if ANY timer has expired to trigger the main refresh
+    if (any(unlist(temp_timers) <= 0, na.rm = TRUE)) {
+      message("A timer hit zero. Triggering main auto-refresh.")
+      showNotification("A timer finished! Refreshing...", type="warning", duration=5)
       fetch_data()
-    } else {
-      timers_rv(temp_timers) # Update the timers without a full refresh
     }
   })
   
