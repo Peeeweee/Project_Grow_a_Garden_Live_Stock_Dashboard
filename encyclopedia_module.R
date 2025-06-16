@@ -7,50 +7,50 @@ encyclopedia_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName = "encyclopedia",
+          # --- MODIFICATION: Updated internal CSS for custom tables to match the new theme ---
           tags$head(
             tags$style(HTML("
-              /* --- Card Styles (for Gear, Eggs, etc.) --- */
-              .encyclopedia-card {
-                background-color: #ffffff; border: 1px solid #eaeaea; border-radius: 8px;
-                padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.08);
-                transition: all 0.3s ease-in-out; display: flex; flex-direction: column;
-                align-items: center; text-align: center; height: 100%;
-              }
-              .encyclopedia-card:hover { transform: translateY(-5px); box-shadow: 0 8px 16px rgba(0,0,0,0.12); }
-              .encyclopedia-card h4 {
-                color: #8E44AD; margin-top: 0; margin-bottom: 15px; border-bottom: 2px solid #f4f4f4;
-                padding-bottom: 10px; width: 100%; font-weight: 600;
-              }
-              .encyclopedia-card p { margin: 5px 0; width: 100%; text-align: left; }
-              .card-details { font-size: 0.9em; color: #555; }
-              .card-details strong { color: #333; }
               .encyclopedia-section-header {
-                margin-top: 20px; margin-bottom: 10px; border-left: 4px solid #8E44AD; padding-left: 15px;
+                margin-top: 20px; margin-bottom: 10px; border-left: 4px solid var(--accent-yellow); 
+                padding-left: 15px;
               }
-
-              /* --- Table Styles --- */
               .wiki-table {
                 width: 100%; border-collapse: collapse; margin-bottom: 25px;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                background-color: var(--bg-card);
+                border: 1px solid var(--border-color);
               }
-              .wiki-table th, .wiki-table td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
-              
-              .wiki-table thead th { color: black; font-weight: bold; font-size: 1.1em; text-align: center; }
-              
-              .wiki-table .rarity-header-Common { background-color: #A9A9A9; color: white !important; }
-              .wiki-table .rarity-header-Uncommon { background-color: #27AE60; color: white !important; }
-              .wiki-table .rarity-header-Rare { background-color: #2980B9; color: white !important; }
-              .wiki-table .rarity-header-Legendary { background-color: #F1C40F; color: #333 !important; }
-              .wiki-table .rarity-header-Mythical { background-color: #E67E22; color: white !important; }
-              .wiki-table .rarity-header-Divine { background-color: #C0392B; color: white !important; }
-              .wiki-table .rarity-header-Prismatic { background: linear-gradient(45deg, #f3ec78, #af4261); color: white !important; }
-              .wiki-table .rarity-header-Unavailable { background-color: #333333; color: white !important; border: 1px solid #555; }
-              
-              .wiki-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
+              .wiki-table th, .wiki-table td { 
+                border: 1px solid var(--border-color); 
+                padding: 10px 12px; 
+                text-align: left;
+                color: var(--text-primary);
+              }
+              .wiki-table thead th {
+                background-color: #153318 !important;
+                color: var(--accent-yellow) !important;
+                font-weight: bold; font-size: 1.1em; text-align: center; 
+              }
+              /* Style the custom rarity headers */
+              .rarity-header-Common, .rarity-header-Uncommon, .rarity-header-Rare, 
+              .rarity-header-Legendary, .rarity-header-Mythical, .rarity-header-Divine, 
+              .rarity-header-Prismatic, .rarity-header-Unavailable {
+                  color: white !important;
+              }
+              .rarity-header-Common { background-color: #7f8c8d !important; }
+              .rarity-header-Uncommon { background-color: var(--accent-green) !important; }
+              .rarity-header-Rare { background-color: #2980B9 !important; }
+              .rarity-header-Legendary { background-color: var(--accent-yellow) !important; color: #153318 !important; }
+              .rarity-header-Mythical { background-color: var(--accent-orange) !important; }
+              .rarity-header-Divine { background-color: var(--accent-red) !important; }
+              .rarity-header-Prismatic { background: linear-gradient(45deg, #a96ded, #FFC107); }
+
+              .wiki-table tbody tr:nth-child(even) { background-color: rgba(0,0,0,0.2); }
+              .wiki-table tbody tr:hover { background-color: rgba(255, 193, 7, 0.1); }
             "))
           ),
           
-          h2("Grow a Garden Encyclopedia of Knowledge"),
+          h2(class = "animated-gradient-text", "Grow a Garden Encyclopedia"),
           p("An exhaustive collection of all items, creatures, and phenomena in the game."),
           
           tabBox(
@@ -70,7 +70,7 @@ encyclopedia_ui <- function(id) {
                      div(class="encyclopedia-section-header", h3("Pet Eggs")),
                      p("Eggs that can be purchased or found to hatch into helpful pets."),
                      uiOutput(ns("egg_table_ui")),
-                     hr(),
+                     hr(style="border-color: var(--border-color);"),
                      div(class="encyclopedia-section-header", h3("Hatchable Pets")),
                      p("Pets that can be hatched from the eggs listed above, providing unique bonuses."),
                      uiOutput(ns("pet_tables_ui"))
@@ -94,55 +94,63 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
     # --- Seeds & Crops Table ---
     output$seeds_table_detailed <- renderDT({
       df <- all_encyclopedia_data()$seeds
-      req(df)
+      req(df, nrow(df) > 0)
       
       df_display <- df %>%
         mutate(
           Image = paste0('<img src="', image_url, '" height="50" alt="', name, '">'),
           sheckle_price_num = suppressWarnings(as.numeric(gsub(",", "", sheckle_price))),
-          min_value_num = suppressWarnings(as.numeric(gsub(",", "", min_value))),
+          sell_value_num = suppressWarnings(as.numeric(gsub(",", "", sell_value))),
           robux_price_num = suppressWarnings(as.numeric(gsub(",", "", robux_price)))
         ) %>%
         select(
-          Image,
-          `Crop Name` = name, `Sheckle Price` = sheckle_price, `Min Value` = min_value,
-          `Robux Price` = robux_price, Stock = stock, Tier = tier,
-          `Multi Harvest` = multi_harvest, Obtainable = obtainable,
-          sheckle_price_num, min_value_num, robux_price_num
+          Image, `Crop Name` = name, `Sheckle Price` = sheckle_price, 
+          `Sell Value` = sell_value, `Robux Price` = robux_price, 
+          Stock = stock, Tier = rarity, `Multi Harvest` = multi_harvest, 
+          Obtainable = obtainable, sheckle_price_num, sell_value_num, robux_price_num
         )
       
+      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         escape = FALSE,
-        # *** MODIFICATION START: Disable pagination and add vertical scroll ***
+        extensions = 'Buttons',
+        class = 'display compact hover',
         options = list(
-          paging = FALSE,       # Disable pagination to show all rows
-          dom = 'ft',           # Show only filter and table
-          scrollY = "600px",    # Add vertical scroll
+          paging = FALSE,
+          dom = 'Bfrt',
+          scrollY = "600px",
           scrollX = TRUE,
+          buttons = c('copy', 'csv', 'excel', 'pdf'),
           columnDefs = list(
             list(className = 'dt-center', targets = c(0, 5, 6, 7, 8)),
-            list(visible = FALSE, targets = c("sheckle_price_num", "min_value_num", "robux_price_num"))
+            list(visible = FALSE, targets = c("sheckle_price_num", "sell_value_num", "robux_price_num"))
           )
         ),
-        # *** MODIFICATION END ***
         rownames = FALSE
       ) %>%
         formatStyle(
           'Tier',
+          color = styleEqual(
+            c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
+            c('#FFFFFF', '#FFFFFF', '#FFFFFF', '#153318', '#FFFFFF', '#FFFFFF', '#153318')
+          ),
           backgroundColor = styleEqual(
             c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
-            c('#D3D3D3', '#A9DFBF', '#AED6F1', '#F9E79F', '#F5CBA7', '#EDBB99', '#D2B4DE')
-          )
+            c('#7f8c8d', '#347433', '#2980B9', '#FFC107', '#FF6F3C', '#B22222', '#a96ded')
+          ),
+          fontWeight = 'bold',
+          borderRadius = '4px',
+          padding = '3px 8px'
         ) %>%
         formatStyle(
           c('Multi Harvest', 'Obtainable'),
-          color = styleEqual(c("Yes", "No"), c('green', 'red')),
-          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+          color = styleEqual(c("Yes", "No", "✓", "✗", "Unknown"), c('#2ECC71', '#E74C3C', '#2ECC71', '#E74C3C', 'grey')),
+          fontWeight = 'bold'
         )
     })
     
-    # --- Gear table logic (No changes needed, already shows all) ---
+    # --- Gear table logic (UI styled via internal CSS block) ---
     output$gear_tables_ui <- renderUI({
       df <- all_encyclopedia_data()$gear
       req(df, nrow(df) > 0)
@@ -188,7 +196,7 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       tagList(tables_list)
     })
     
-    # --- EGG & ANIMAL LOGIC (No changes needed, already shows all) ---
+    # --- EGG & ANIMAL LOGIC (UI styled via internal CSS block) ---
     output$egg_table_ui <- renderUI({
       df <- all_encyclopedia_data()$eggs_and_pets$eggs
       req(df, nrow(df) > 0)
@@ -244,7 +252,7 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       tagList(tables_list)
     })
     
-    # --- Mutations Table ---
+    # --- Mutations Table (Styled by global styles.css) ---
     output$mutations_table_detailed <- renderDT({
       df <- all_encyclopedia_data()$mutations
       req(df)
@@ -260,17 +268,15 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       
       datatable(
         df_display,
-        escape = FALSE, 
-        # *** MODIFICATION START: Disable pagination and add vertical scroll ***
+        escape = FALSE,
         options = list(
-          paging = FALSE,       # Disable pagination to show all rows
-          dom = 'ft',           # Show only filter and table
-          scrollY = "600px",    # Add vertical scroll
+          paging = FALSE,
+          dom = 'ft',
+          scrollY = "600px",
           columnDefs = list(
             list(className = 'dt-center', targets = 1)
           )
         ),
-        # *** MODIFICATION END ***
         rownames = FALSE
       )
     })

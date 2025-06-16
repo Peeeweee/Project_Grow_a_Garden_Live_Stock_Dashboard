@@ -11,13 +11,14 @@ calculator_ui <- function(id) {
           tags$head(
             tags$style(HTML("
               .button-glow {
-                box-shadow: 0 0 15px #f39c12 !important;
+                box-shadow: 0 0 15px #FFC107 !important; /* Matches new theme's accent */
                 transition: box-shadow 0.2s ease-in-out;
               }
             "))
           ),
           
-          h2("Grow a Garden Fruit Value Calculator"),
+          # --- MODIFICATION: Added animated class to the title ---
+          h2(class = "animated-gradient-text", "Grow a Garden Fruit Value Calculator"),
           p("Select a crop and its mutations to calculate the final sell value based on the official formula."),
           
           fluidRow(
@@ -48,20 +49,20 @@ calculator_ui <- function(id) {
                      
                      fluidRow(
                        column(width = 6,
-                              h4("Growth Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
+                              h4("Growth Mutations", style="text-align:center; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-bottom: 10px;"),
                               radioButtons(ns("growth_mutation"), label = NULL,
                                            choices = c("None (x1)" = 1, "Golden (x20)" = 20, "Rainbow (x50)" = 50),
                                            selected = 1),
                               
                               br(), 
                               
-                              h4("Temperature Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
+                              h4("Temperature Mutations", style="text-align:center; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-bottom: 10px;"),
                               radioButtons(ns("temp_mutation"), label = NULL,
                                            choices = c("None (+0)" = 0, "Wet (+1)" = 1, "Chilled (+1)" = 1, "Frozen (+9)" = 9),
                                            selected = 0)
                        ),
                        column(width = 6,
-                              h4("Environmental Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
+                              h4("Environmental Mutations", style="text-align:center; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-bottom: 10px;"),
                               p(em("You can select multiple."), style="text-align:center; font-size:0.9em; margin-top: -5px;"),
                               uiOutput(ns("env_mutations_ui"))
                        )
@@ -80,7 +81,7 @@ calculator_ui <- function(id) {
                    box(
                      title = "Formula", status = "info", solidHeader = TRUE, width = 12,
                      div(class = "formula-box",
-                         "Final Value = Base Value × Growth Mutation × (1 + Temperature Mutation + Environmental Mutations)"
+                         "Final Value = Base Value × Growth × (1 + Temp + Environment)"
                      )
                    ),
                    box(
@@ -133,6 +134,7 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
     
     output$env_mutations_ui <- renderUI({
       non_env_mutations <- c("Wet", "Chilled", "Frozen", "Golden", "Rainbow")
+      req(mutation_data)
       env_muts <- mutation_data %>%
         filter(!name %in% non_env_mutations)
       choices_list <- setNames(as.list(env_muts$bonus), 
@@ -159,13 +161,9 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
     })
     
     observeEvent(input$reset_mutations_button, {
-      shinyjs::addClass(id = "reset_mutations_button", class = "button-glow")
-      
       updateRadioButtons(session, "growth_mutation", selected = 1)
       updateRadioButtons(session, "temp_mutation", selected = 0)
       updateCheckboxGroupInput(session, "env_mutations", selected = character(0))
-      
-      delay(300, shinyjs::removeClass(id = "reset_mutations_button", class = "button-glow"))
     })
     
     
@@ -192,7 +190,8 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         value = final_value(),
         subtitle = paste("Value for:", input$selected_crop),
         icon = icon("dollar-sign"),
-        color = "green"
+        # --- MODIFICATION: Changed color to match new theme ---
+        color = "yellow"
       )
     })
     
@@ -229,54 +228,61 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         select(
           "Crop Name" = name,
           "Sheckle Price" = sheckle_price,
-          "Min Sell Value" = sell_value,
+          "Sell Value" = sell_value,
           "Robux Price" = robux_price,
           "Stock" = stock,
           "Rarity Tier" = rarity,
           "Multi Harvest" = multi_harvest,
           "Obtainable" = obtainable,
-          sell_value_num, sheckle_price_num, robux_price_num
+          sell_value_num,
+          sheckle_price_num, 
+          robux_price_num
         ) %>%
-        # *** MODIFICATION START: Standardize empty-like values to "Unknown" ***
         mutate(across(
-          c("Sheckle Price", "Min Sell Value", "Robux Price", "Stock"),
+          c("Sheckle Price", "Sell Value", "Robux Price", "Stock"),
           ~ if_else(is.na(.) | . %in% c("", "0", "None", "N/A"), "Unknown", as.character(.))
         ))
-      # *** MODIFICATION END ***
       
+      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         extensions = 'Buttons',
         class = 'display compact hover',
         rownames = FALSE,
         options = list(
-          paging = FALSE,      # Disable pagination to show all rows.
-          dom = 'Bfrt',        # 'Bfrt' = Buttons, filter, processing, table.
-          scrollY = "600px",   # Adds a vertical scrollbar.
+          paging = FALSE,
+          dom = 'Bfrt',
+          scrollY = "600px",
           scrollX = TRUE,
           buttons = c('copy', 'csv', 'excel', 'pdf'),
           columnDefs = list(
-            # Hide the raw numeric columns used for sorting
             list(visible = FALSE, targets = c("sell_value_num", "sheckle_price_num", "robux_price_num"))
           )
         )
       ) %>%
         formatStyle(
           'Rarity Tier',
+          color = styleEqual(
+            c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
+            c('#FFFFFF', '#FFFFFF', '#FFFFFF', '#153318', '#FFFFFF', '#FFFFFF', '#153318')
+          ),
           backgroundColor = styleEqual(
             c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
-            c('#D3D3D3', '#A9DFBF', '#AED6F1', '#F9E79F', '#F5CBA7', '#EDBB99', '#D2B4DE')
-          )
+            c('#7f8c8d', '#347433', '#2980B9', '#FFC107', '#FF6F3C', '#B22222', '#a96ded')
+          ),
+          fontWeight = 'bold',
+          borderRadius = '4px',
+          padding = '3px 8px'
         ) %>%
         formatStyle(
           'Multi Harvest',
-          color = styleEqual(c("Yes", "No"), c('green', 'red')),
-          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+          color = styleEqual(c("Yes", "No", "✓", "✗", "Unknown"), c('#2ECC71', '#E74C3C', '#2ECC71', '#E74C3C', 'grey')),
+          fontWeight = 'bold'
         ) %>%
         formatStyle(
           'Obtainable',
-          color = styleEqual(c("Yes", "No"), c('green', 'red')),
-          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+          color = styleEqual(c("Yes", "No", "✓", "✗", "Unknown"), c('#2ECC71', '#E74C3C', '#2ECC71', '#E74C3C', 'grey')),
+          fontWeight = 'bold'
         ) %>%
         formatCurrency('sheckle_price_num', currency = "", digits = 0) %>%
         formatCurrency('sell_value_num', currency = "", digits = 0) %>%

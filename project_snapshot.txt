@@ -12,7 +12,13 @@ C:/Users/Paulo/Documents/Project_Grow_a_Garden_Live_Stock_Dashboard
 ├── Grow_a_Garden_-_Live_Stock_Dashboard.Rproj
 ├── history_module.R
 ├── project_snapshot.txt
-└── vulcan_stock_history.csv
+├── rsconnect
+│   └── shinyapps.io
+│       └── delgadoearlpaulo
+│           └── project_grow_a_garden_live_stock_dashboard.dcf
+├── vulcan_stock_history.csv
+└── www
+    └── styles.css
 
 
 
@@ -90,50 +96,86 @@ fetch_item_info <- function() {
 item_encyclopedia <- fetch_item_info()
 
 
-# Scraper for growagardencalculator.net to get fruit values for the calculator.
-fetch_fruit_values <- function() {
-  message("--- Fetching DETAILED Fruit Values from growagardencalculator.net ---")
-  values_url <- "https://growagardencalculator.net/grow-a-garden-values"
+# --- MODIFICATION: Final, Resilient Scraper for the New Website Structure ---
+# This function is designed to handle the new multi-table layout on the page.
+fetch_master_seed_list <- function() {
+  message("--- Fetching MASTER Seed/Crop List from growagardencalculator.net (NEW v2 Scraper) ---")
+  url <- "https://growagardencalculator.net/grow-a-garden-values"
+  
   tryCatch({
-    response <- GET(values_url)
-    stop_for_status(response, "download page")
-    page_html <- content(response, "text", encoding = "UTF-8") %>% read_html()
-    all_tables <- page_html %>% html_nodes("table")
-    if (length(all_tables) == 0) {
-      message("   No tables found on the page.")
-      return(tibble())
+    page_html <- read_html(url)
+    
+    main_content <- page_html %>% html_nodes("div.space-y-6")
+    
+    if (length(main_content) == 0) {
+      stop("Could not find main content container ('div.space-y-6'). Website structure has changed.")
     }
-    # Map over all tables and combine them into one dataframe
-    df <- all_tables %>% 
-      map_dfr(~html_table(.x, na.strings = c("", "NA", "N/A", "Unknown")) %>% mutate(across(everything(), as.character)))
-    df <- df %>%
-      rename(
-        name = `Crop Name`, sheckle_price = `Sheckle Price`,
-        sell_value = `Min Value`, robux_price = `Robux Price`,
-        stock = Stock, rarity = Tier,
-        multi_harvest = `Multi Harvest`, obtainable = Obtainable
-      ) %>%
+    
+    all_seeds_df <- main_content %>% 
+      html_nodes("div.space-y-4") %>%
+      map_dfr(function(category_block) {
+        
+        category_name <- category_block %>% 
+          html_node("h2") %>% 
+          html_text(trim = TRUE)
+        
+        table_node <- category_block %>% html_node("table")
+        if (is.na(table_node)) return(NULL)
+        
+        rows <- table_node %>% html_nodes("tr") %>% tail(-1)
+        
+        map_dfr(rows, function(row) {
+          cells <- row %>% html_nodes("td")
+          if (length(cells) < 6) return(NULL)
+          
+          tibble(
+            image_url     = cells[[1]] %>% html_node("img") %>% html_attr("src") %>% na_if(""),
+            name          = cells[[2]] %>% html_text(trim = TRUE),
+            sheckle_price = cells[[3]] %>% html_text(trim = TRUE),
+            sell_value    = cells[[4]] %>% html_text(trim = TRUE),
+            robux_price   = cells[[5]] %>% html_text(trim = TRUE),
+            rarity        = cells[[6]] %>% html_text(trim = TRUE),
+            stock         = "N/A", 
+            multi_harvest = "Unknown",
+            obtainable    = "Unknown",
+            source_category = category_name
+          )
+        })
+      })
+    
+    if (nrow(all_seeds_df) == 0) {
+      stop("Found content container, but failed to parse any valid crop rows. The table cell structure may have changed.")
+    }
+    
+    df_cleaned <- all_seeds_df %>%
       mutate(
-        # Handle special cases where sell value is listed as rarity tier
         sell_value = if_else(sell_value %in% c("Mythical", "Divine"), robux_price, sell_value),
-        # Clean up the sell value to be purely numeric
-        sell_value = as.character(sell_value),
         sell_value = str_replace_all(sell_value, "[~,]", ""),
         sell_value = str_extract(sell_value, "^\\d+"),
         sell_value = str_trim(sell_value)
       ) %>%
-      # Ensure data is clean and valid
-      filter(name != "", !is.na(name), sell_value != "", !is.na(sell_value)) %>%
+      filter(!is.na(name) & name != "", !is.na(sell_value) & sell_value != "") %>%
       filter(!is.na(suppressWarnings(as.numeric(sell_value))))
-    message("   Detailed fruit values scraped successfully for ", nrow(df), " fruits.")
-    return(df)
+    
+    message("   Master seed list scraped and cleaned successfully for ", nrow(df_cleaned), " fruits from multiple tables.")
+    return(df_cleaned)
+    
   }, error = function(e) {
-    message("   ERROR fetching fruit values: ", e$message)
-    showNotification(paste("Failed to fetch fruit values from", values_url), type = "error", duration = 10)
-    return(tibble())
+    message("   ERROR fetching master seed list: ", e$message)
+    showNotification(
+      paste("Critical Scraper Failure:", e$message), 
+      type = "error", 
+      duration = 15
+    )
+    return(
+      tibble(
+        image_url = character(), name = character(), sheckle_price = character(),
+        sell_value = character(), robux_price = character(), stock = character(),
+        rarity = character(), multi_harvest = character(), obtainable = character()
+      )
+    )
   })
 }
-
 
 # Scraper for the mutations page, used by the Calculator.
 fetch_mutation_data <- function() {
@@ -178,7 +220,6 @@ fetch_public_api_data <- function() {
     stock_data <- content(stock_response, "parsed")
     message("   Stock data fetched successfully.")
     
-    # Helper function to process each stock category list from the API response
     process_stock_list <- function(stock_list) {
       if (is.null(stock_list) || length(stock_list) == 0) return(tibble(name=character(), image_url=character(), quantity=integer()))
       map_dfr(stock_list, ~tibble(name = .x$name %||% "Unknown", image_url = .x$image %||% "", quantity = .x$value %||% NA_integer_))
@@ -194,7 +235,6 @@ fetch_public_api_data <- function() {
     timer_data <- content(timer_response, "parsed")
     message("   Timer data fetched successfully.")
     
-    # Helper function to parse countdown strings like "1h30m15s" into seconds
     parse_countdown_to_seconds <- function(s) {
       if (is.null(s) || !is.character(s) || nchar(s)==0) return(NA_integer_)
       h <- as.numeric(str_extract(s, "\\d+(?=h)")); h <- ifelse(is.na(h), 0, h)
@@ -203,7 +243,6 @@ fetch_public_api_data <- function() {
       h*3600 + m*60 + s
     }
     
-    # The API sometimes returns NA for honey/egg timers; this logic provides a fallback.
     egg_s <- parse_countdown_to_seconds(timer_data$egg$countdown); honey_s <- parse_countdown_to_seconds(timer_data$honey$countdown)
     if (is.na(honey_s)) honey_s <- egg_s; if (is.na(egg_s)) egg_s <- honey_s
     
@@ -217,7 +256,6 @@ fetch_public_api_data <- function() {
     weather_response <- GET(weather_url); stop_for_status(weather_response, "fetch weather data")
     weather_data_raw <- content(weather_response, "parsed")
     
-    # Filter for weather events that are currently active based on unix timestamps
     current_unix_time <- as.numeric(Sys.time())
     truly_active_weather <- Filter(function(w) (w$start_duration_unix %||% 0) <= current_unix_time && (w$end_duration_unix %||% 0) >= current_unix_time, weather_data_raw$weather)
     weather_names <- if (length(truly_active_weather) > 0) truly_active_weather[[1]]$weather_name else "Clear Skies"
@@ -234,40 +272,6 @@ fetch_public_api_data <- function() {
 
 
 # --- Encyclopedia Scraping Functions (for the Encyclopedia Tab) ---
-# These run once at startup to populate the encyclopedia tab.
-
-fetch_detailed_seed_data <- function() {
-  message("--- Fetching DETAILED Seed/Crop Data from growagardencalculator.net ---")
-  url <- "https://growagardencalculator.net/grow-a-garden-values"
-  tryCatch({
-    page <- read_html(url)
-    all_tables <- page %>% html_nodes("table")
-    if (length(all_tables) == 0) stop("Could not find any tables on the seed/crop values page.")
-    
-    all_seeds_df <- all_tables %>%
-      map_dfr(function(table_node) {
-        rows <- table_node %>% html_nodes("tr") %>% tail(-1)
-        map_dfr(rows, function(row) {
-          cells <- row %>% html_nodes("td")
-          if (length(cells) != 9) return(NULL)
-          tibble(
-            image_url     = cells[[1]] %>% html_node("img") %>% html_attr("src"), name          = cells[[2]] %>% html_text(trim = TRUE),
-            sheckle_price = cells[[3]] %>% html_text(trim = TRUE), min_value     = cells[[4]] %>% html_text(trim = TRUE),
-            robux_price   = cells[[5]] %>% html_text(trim = TRUE), stock         = cells[[6]] %>% html_text(trim = TRUE),
-            tier          = cells[[7]] %>% html_text(trim = TRUE), multi_harvest = cells[[8]] %>% html_text(trim = TRUE),
-            obtainable    = cells[[9]] %>% html_text(trim = TRUE)
-          )
-        })
-      })
-    message("   Successfully scraped ", nrow(all_seeds_df), " detailed seeds/crops.")
-    return(all_seeds_df)
-  }, error = function(e) {
-    message("   ERROR fetching detailed seed data: ", e$message)
-    showNotification(paste("Failed to fetch detailed seed data from", url), type = "error", duration = 10)
-    return(tibble())
-  })
-}
-
 fetch_ign_gear_data <- function() {
   message("--- Fetching Gear Data from IGN ---")
   url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Gear_Guide"
@@ -365,7 +369,6 @@ fetch_pet_chances_data <- function() {
     return(chances_df)
   }, error = function(e) {
     message("   ERROR fetching pet chance data: ", e$message)
-    showNotification(paste("Failed to fetch pet chance data from", url), type = "error", duration = 10)
     return(tibble())
   })
 }
@@ -403,8 +406,7 @@ fetch_detailed_mutations_data <- function() {
 # =============================================================
 ui <- dashboardPage(
   title = "Grow a Garden Dashboard",
-  skin = "purple",
-  dashboardHeader(title = "Grow a Garden Dashboard"),
+  dashboardHeader(title = "Grow a Garden"), # Shortened title for mobile
   dashboardSidebar(
     sidebarMenu(id="tabs", 
                 menuItem("Live Dashboard", tabName="dashboard", icon=icon("dashboard")), 
@@ -415,32 +417,20 @@ ui <- dashboardPage(
   ),
   dashboardBody(
     shinyjs::useShinyjs(),
-    # --- Custom CSS for styling the application ---
-    tags$head(tags$style(HTML("
-      /* Style for item links in the live dashboard */
-      .stock-item-link { color: inherit; text-decoration: none; }
-      /* Style for individual item boxes (cards) */
-      .stock-item {text-align:center; padding:10px; border:1px solid #ddd; border-radius:5px; margin:5px; background-color:#f9f9f9; width:120px; min-height:150px; /* MODIFIED: Changed height to min-height for flexible wrapping */ display:flex; flex-direction:column; justify-content:space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: transform 0.2s, box-shadow 0.2s;}
-      .stock-item:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); cursor: pointer; }
-      .stock-item img {max-width:80px; max-height:80px; margin:0 auto;}
-      .stock-item p {margin-top:5px; font-weight:bold; font-size: 0.9em;}
-      .stock-item .quantity {font-size: 1.1em; color: #2c3e50; font-weight: bold;}
-      /* Loading overlay styles */
-      #loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 10000; display: flex; justify-content: center; align-items: center; }
-      .loader { border: 8px solid #f3f3f3; border-top: 8px solid #8E44AD; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; }
-      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      /* Responsive header title for small screens */
-      @media (max-width: 767px) { .main-header .logo { font-size: 12px; overflow: hidden; text-overflow: ellipsis; } }
-      /* Styles for the calculator tab */
-      .formula-box { background-color: #00c0ef; color: white; padding: 10px; border-radius: 3px; text-align: center; font-weight: bold; }
-      .solution-box { background-color: #f39c12; color: white; padding: 10px; border-radius: 3px; text-align: center; font-weight: bold; font-family: monospace; font-size: 1.2em; word-wrap: break-word; }
-    "))),
-    # The loading overlay div, hidden by default
+    
+    # --- MODIFICATION: Link to external stylesheet with cache-busting ---
+    tags$head(
+      tags$link(rel = "stylesheet", type = "text/css", 
+                href = paste0("styles.css?v=", as.numeric(Sys.time())))
+    ),
+    
     tags$div(id = "loading-overlay", style = "display: none;", div(class="loader")),
     
     # --- Main Tab Content ---
     tabItems(
       tabItem(tabName="dashboard",
+              h2(class="animated-gradient-text", "Live Dashboard"),
+              p("Real-time stock, timer, and weather information from the game."),
               fluidRow(
                 column(8,
                        fluidRow(
@@ -471,7 +461,6 @@ ui <- dashboardPage(
                 box(title="Night Stock", status="primary", solidHeader=TRUE, width=6, uiOutput("night_stock_ui"))
               )
       ),
-      # UI from modules
       history_ui("history_module"),
       calculator_ui("calculator"),
       encyclopedia_ui("encyclopedia_module")
@@ -485,18 +474,15 @@ ui <- dashboardPage(
 server <- function(input, output, session) {
   message("Shiny server function initialized.")
   
-  # Reactive values for managing shared state and data
-  SharedState <- reactiveValues(status = "idle") # Prevents multiple simultaneous fetches
+  SharedState <- reactiveValues(status = "idle")
   scraped_data <- reactiveVal()
   timers_rv <- reactiveVal(list())
   fruit_data_rv <- reactiveVal()
   
-  # --- Data Management for Fruit Calculator ---
-  # Function to fetch and save the latest fruit data from the web scraper
   fetch_and_save_fruit_data <- function() {
     shinyjs::show("loading-overlay")
     showNotification("Fetching latest fruit data...", type = "message", duration = 5)
-    new_data <- fetch_fruit_values()
+    new_data <- fetch_master_seed_list()
     
     if (nrow(new_data) > 0) {
       write.csv(new_data, FRUIT_VALUES_FILE, row.names = FALSE)
@@ -509,7 +495,6 @@ server <- function(input, output, session) {
     return(new_data)
   }
   
-  # On app start, load fruit data from local cache if it exists, otherwise fetch it.
   if (file.exists(FRUIT_VALUES_FILE)) {
     message("Loading fruit data from local CSV file.")
     fruit_data_rv(read.csv(FRUIT_VALUES_FILE, check.names = FALSE))
@@ -518,17 +503,13 @@ server <- function(input, output, session) {
     fetch_and_save_fruit_data()
   }
   
-  
-  # --- Core Data Fetching for Live Dashboard ---
   fetch_data <- function() {
-    if (isolate(SharedState$status) == "fetching") return() # Prevent re-entry
+    if (isolate(SharedState$status) == "fetching") return()
     SharedState$status <- "fetching"
     shinyjs::show("loading-overlay")
     message("fetch_data() triggered. Status: fetching")
     
-    # Store old timers to check if a reset happened
     old_timers <- isolate(timers_rv())
-    
     data <- fetch_public_api_data()
     
     if (!is.null(data$error)) {
@@ -538,26 +519,21 @@ server <- function(input, output, session) {
     scraped_data(data)
     timers_rv(data$timers)
     
-    # --- MODIFICATION: Schedule the 40-second follow-up refresh ---
-    # Check if the Seed Stock timer specifically was low before and is high now
     seed_timer_was_low <- !is.null(old_timers$`Seed Stock`) && old_timers$`Seed Stock` <= 1
-    seed_timer_is_high <- !is.null(data$timers$`Seed Stock`) && data$timers$`Seed Stock` > 260 # 4:20
+    seed_timer_is_high <- !is.null(data$timers$`Seed Stock`) && data$timers$`Seed Stock` > 260
     
     if (seed_timer_was_low && seed_timer_is_high) {
       message("Seed/Gear timer was just reset. Scheduling a 40-second follow-up refresh.")
       shinyjs::delay(40000, shinyjs::runjs(
-        # We use a namespaced input ID and Math.random() to ensure the event always fires
         paste0("Shiny.setInputValue('", session$ns("special_refresh_trigger"), "', Math.random(), {priority: 'event'});")
       ))
     }
     
-    # If fetch was successful, append the new data to the history file
     if (is.null(data$error) && length(data$stocks) > 0) {
       history_df <- map_dfr(data$stocks, ~as.data.frame(.x), .id="category") %>%
         mutate(timestamp = data$timestamp, quantity = as.character(quantity)) %>%
         select(timestamp, category, item_name = name, quantity, image_url)
       
-      # Safer check to ensure there's data to write
       if(nrow(history_df) > 0) {
         write.table(history_df, HISTORY_FILE, sep=",", row.names=F, append=file.exists(HISTORY_FILE), col.names=!file.exists(HISTORY_FILE))
       }
@@ -568,18 +544,14 @@ server <- function(input, output, session) {
     message("Fetch complete. Status: idle")
   }
   
-  # Initial data fetch when the app starts
   fetch_data()
   
-  # --- MODIFICATION: New observer for the special 40-second refresh ---
   observeEvent(input$special_refresh_trigger, {
     message("40-second follow-up refresh triggered for Seed/Gear.")
     showNotification("Performing 40-second follow-up refresh...", type="message", duration=4)
     fetch_data()
   })
   
-  # --- Timer and Refresh Logic ---
-  # This observer ticks every second to countdown the timers and triggers the MAIN refresh at 0:00
   observe({ 
     req(SharedState$status == "idle") 
     invalidateLater(1000, session)
@@ -588,15 +560,13 @@ server <- function(input, output, session) {
     temp_timers <- isolate(timers_rv())
     if (length(temp_timers) == 0) return()
     
-    # Decrement all timers
     for (name in names(temp_timers)) {
       if (is.numeric(temp_timers[[name]]) && !is.na(temp_timers[[name]]) && temp_timers[[name]] > 0) {
         temp_timers[[name]] <- temp_timers[[name]] - 1
       }
     }
-    timers_rv(temp_timers) # Update the reactive value with the new decremented times
+    timers_rv(temp_timers)
     
-    # Check if ANY timer has expired to trigger the main refresh
     if (any(unlist(temp_timers) <= 0, na.rm = TRUE)) {
       message("A timer hit zero. Triggering main auto-refresh.")
       showNotification("A timer finished! Refreshing...", type="warning", duration=5)
@@ -604,10 +574,8 @@ server <- function(input, output, session) {
     }
   })
   
-  # Manual refresh button
   observeEvent(input$refresh_button, { message("Manual refresh triggered."); fetch_data() })
   
-  # Scheduled 5-minute refresher to ensure data doesn't become stale
   observe({
     invalidateLater(300000, session) 
     if (isolate(SharedState$status) == "idle") {
@@ -616,14 +584,12 @@ server <- function(input, output, session) {
     }
   })
   
-  # --- Dashboard UI Rendering ---
   output$last_updated_text <- renderText({
     data <- scraped_data(); req(data)
     if (!is.null(data$error)) return(paste("Last attempt failed:", format(data$timestamp, "%I:%M:%S %p")))
     paste("Last updated:", format(data$timestamp, "%I:%M:%S %p"))
   })
   
-  # Helper function to create timer value boxes, reducing code duplication
   create_timer_output <- function(timer_name, icon_name, color) {
     renderValueBox({
       req(scraped_data())
@@ -638,7 +604,6 @@ server <- function(input, output, session) {
     })
   }
   
-  # Assign helper to each timer output
   output$seed_timer_box <- create_timer_output("Seed Stock", "seedling", "aqua")
   output$gear_timer_box <- create_timer_output("Gear Stock", "cogs", "blue")
   output$egg_timer_box <- create_timer_output("Egg Stock", "egg", "orange")
@@ -646,15 +611,12 @@ server <- function(input, output, session) {
   output$cosmetics_timer_box <- create_timer_output("Cosmetics Stock", "gem", "purple")
   output$night_timer_box <- create_timer_output("Night Stock", "moon", "navy")
   
-  # Weather value box
   output$weather_box <- renderValueBox({
     data <- scraped_data(); req(data)
     if (!is.null(data$error)) return(valueBox("API OFFLINE", "Current Weather", icon=icon("exclamation-triangle"), color="red"))
     valueBox(data$weather, "Current Weather", icon=icon("cloud-sun-rain"), color="teal")
   })
   
-  # --- Item Grid and Modal Logic ---
-  # Function to show a detailed modal for a clicked item
   show_item_modal <- function(item_name) {
     info <- item_encyclopedia[[item_name]]
     live_quantity <- "Not in stock"
@@ -671,7 +633,6 @@ server <- function(input, output, session) {
     showModal(modalDialog(title = item_name, modal_ui, easyClose = TRUE, footer = modalButton("Close")))
   }
   
-  # Dynamically create observers for each clickable item in the encyclopedia
   if(length(item_encyclopedia) > 0) {
     lapply(names(item_encyclopedia), function(item_name) {
       button_id <- paste0("show_details_", gsub("[^A-Za-z0-9]", "", item_name))
@@ -679,8 +640,6 @@ server <- function(input, output, session) {
     })
   }
   
-  # Helper function to create the item grid UI, reducing code duplication.
-  # This function's output is clean and does NOT produce the overlapping text from the screenshot.
   create_item_grid <- function(category_name) {
     renderUI({
       data <- scraped_data(); req(data); if (!is.null(data$error)) return(p("Could not load stock data.", style="color:red; text-align:center;"))
@@ -689,25 +648,22 @@ server <- function(input, output, session) {
       item_html <- lapply(1:nrow(df), function(i) {
         item_name <- df$name[i]; button_id <- paste0("show_details_",gsub("[^A-Za-z0-9]","",item_name))
         
-        # This defines the content of a single item card
         label_div <- tags$div(class="stock-item", 
                               tags$img(src=df$image_url[i], alt=item_name), 
                               tags$p(item_name), 
                               tags$p(class="quantity", paste("x", df$quantity[i]))
         )
         
-        # If the item exists in our encyclopedia, make it a clickable actionLink
         if (item_name %in% names(item_encyclopedia)) {
           actionLink(inputId=button_id, label=label_div, class="stock-item-link")
         } else {
-          label_div # Otherwise, just display the div
+          label_div
         }
       })
       tags$div(style="display:flex; flex-wrap:wrap; justify-content:center;", item_html)
     })
   }
   
-  # Assign helper to each stock UI output
   output$seed_stock_ui <- create_item_grid("Seed Stock"); output$gear_stock_ui <- create_item_grid("Gear Stock");
   output$egg_stock_ui <- create_item_grid("Egg Stock"); output$cosmetics_stock_ui <- create_item_grid("Cosmetics Stock");
   output$honey_stock_ui <- create_item_grid("Honey Stock"); output$night_stock_ui <- create_item_grid("Night Stock")
@@ -715,7 +671,6 @@ server <- function(input, output, session) {
   
   # --- Data Provisioning for Modules ---
   
-  # This reactive reads the history CSV file ONLY when new data is fetched.
   history_data <- eventReactive(scraped_data(), {
     if (!file.exists(HISTORY_FILE)) return(data.frame()) 
     read.csv(HISTORY_FILE) %>% 
@@ -725,12 +680,10 @@ server <- function(input, output, session) {
       select(-timestamp_val)
   }, ignoreNULL = FALSE)
   
-  # This reactive value fetches and holds ALL encyclopedia data at startup.
-  # It is then passed to the encyclopedia module.
   encyclopedia_data <- reactiveVal({
     message("--- Aggregating all encyclopedia data at startup... ---")
     ign_data <- fetch_ign_egg_data()
-    Sys.sleep(1) # Be polite to the servers
+    Sys.sleep(1) 
     pet_chances <- fetch_pet_chances_data()
     Sys.sleep(1)
     
@@ -743,14 +696,13 @@ server <- function(input, output, session) {
     }
     
     list(
-      seeds = fetch_detailed_seed_data(),
+      seeds = fetch_master_seed_list(),
       gear = fetch_ign_gear_data(),
       eggs_and_pets = ign_data,
       mutations = fetch_detailed_mutations_data()
     )
   })
   
-  # This reactive creates a named list of fruit values for the calculator's dropdown
   fruit_value_list_rv <- reactive({
     df <- fruit_data_rv(); req(df, nrow(df) > 0)
     df_calc <- df %>% mutate(sell_value_numeric = as.numeric(sell_value)) %>% filter(!is.na(sell_value_numeric))
@@ -759,22 +711,18 @@ server <- function(input, output, session) {
   
   # --- Module Server Initializations ---
   
-  # Calculator Module
   calculator_return <- calculator_server("calculator", 
                                          fruit_data_rv = fruit_data_rv, 
                                          fruit_value_list_rv = fruit_value_list_rv,
                                          mutation_data = mutation_data)
   
-  # Listen for the "Fetch Latest" button click from the calculator module
   observeEvent(calculator_return$fetch_data(), {
     req(calculator_return$fetch_data() > 0) 
     fetch_and_save_fruit_data()
   }, ignoreInit = TRUE) 
   
-  # History Module
   history_server("history_module", history_data = history_data)
   
-  # Encyclopedia Module
   encyclopedia_server("encyclopedia_module", all_encyclopedia_data = encyclopedia_data)
 }
 
@@ -800,13 +748,14 @@ calculator_ui <- function(id) {
           tags$head(
             tags$style(HTML("
               .button-glow {
-                box-shadow: 0 0 15px #f39c12 !important;
+                box-shadow: 0 0 15px #FFC107 !important; /* Matches new theme's accent */
                 transition: box-shadow 0.2s ease-in-out;
               }
             "))
           ),
           
-          h2("Grow a Garden Fruit Value Calculator"),
+          # --- MODIFICATION: Added animated class to the title ---
+          h2(class = "animated-gradient-text", "Grow a Garden Fruit Value Calculator"),
           p("Select a crop and its mutations to calculate the final sell value based on the official formula."),
           
           fluidRow(
@@ -837,20 +786,20 @@ calculator_ui <- function(id) {
                      
                      fluidRow(
                        column(width = 6,
-                              h4("Growth Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
+                              h4("Growth Mutations", style="text-align:center; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-bottom: 10px;"),
                               radioButtons(ns("growth_mutation"), label = NULL,
                                            choices = c("None (x1)" = 1, "Golden (x20)" = 20, "Rainbow (x50)" = 50),
                                            selected = 1),
                               
                               br(), 
                               
-                              h4("Temperature Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
+                              h4("Temperature Mutations", style="text-align:center; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-bottom: 10px;"),
                               radioButtons(ns("temp_mutation"), label = NULL,
                                            choices = c("None (+0)" = 0, "Wet (+1)" = 1, "Chilled (+1)" = 1, "Frozen (+9)" = 9),
                                            selected = 0)
                        ),
                        column(width = 6,
-                              h4("Environmental Mutations", style="text-align:center; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-bottom: 10px;"),
+                              h4("Environmental Mutations", style="text-align:center; border-bottom: 1px solid var(--border-color); padding-bottom: 5px; margin-bottom: 10px;"),
                               p(em("You can select multiple."), style="text-align:center; font-size:0.9em; margin-top: -5px;"),
                               uiOutput(ns("env_mutations_ui"))
                        )
@@ -869,7 +818,7 @@ calculator_ui <- function(id) {
                    box(
                      title = "Formula", status = "info", solidHeader = TRUE, width = 12,
                      div(class = "formula-box",
-                         "Final Value = Base Value × Growth Mutation × (1 + Temperature Mutation + Environmental Mutations)"
+                         "Final Value = Base Value × Growth × (1 + Temp + Environment)"
                      )
                    ),
                    box(
@@ -922,6 +871,7 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
     
     output$env_mutations_ui <- renderUI({
       non_env_mutations <- c("Wet", "Chilled", "Frozen", "Golden", "Rainbow")
+      req(mutation_data)
       env_muts <- mutation_data %>%
         filter(!name %in% non_env_mutations)
       choices_list <- setNames(as.list(env_muts$bonus), 
@@ -948,13 +898,9 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
     })
     
     observeEvent(input$reset_mutations_button, {
-      shinyjs::addClass(id = "reset_mutations_button", class = "button-glow")
-      
       updateRadioButtons(session, "growth_mutation", selected = 1)
       updateRadioButtons(session, "temp_mutation", selected = 0)
       updateCheckboxGroupInput(session, "env_mutations", selected = character(0))
-      
-      delay(300, shinyjs::removeClass(id = "reset_mutations_button", class = "button-glow"))
     })
     
     
@@ -981,7 +927,8 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         value = final_value(),
         subtitle = paste("Value for:", input$selected_crop),
         icon = icon("dollar-sign"),
-        color = "green"
+        # --- MODIFICATION: Changed color to match new theme ---
+        color = "yellow"
       )
     })
     
@@ -1018,54 +965,61 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         select(
           "Crop Name" = name,
           "Sheckle Price" = sheckle_price,
-          "Min Sell Value" = sell_value,
+          "Sell Value" = sell_value,
           "Robux Price" = robux_price,
           "Stock" = stock,
           "Rarity Tier" = rarity,
           "Multi Harvest" = multi_harvest,
           "Obtainable" = obtainable,
-          sell_value_num, sheckle_price_num, robux_price_num
+          sell_value_num,
+          sheckle_price_num, 
+          robux_price_num
         ) %>%
-        # *** MODIFICATION START: Standardize empty-like values to "Unknown" ***
         mutate(across(
-          c("Sheckle Price", "Min Sell Value", "Robux Price", "Stock"),
+          c("Sheckle Price", "Sell Value", "Robux Price", "Stock"),
           ~ if_else(is.na(.) | . %in% c("", "0", "None", "N/A"), "Unknown", as.character(.))
         ))
-      # *** MODIFICATION END ***
       
+      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         extensions = 'Buttons',
         class = 'display compact hover',
         rownames = FALSE,
         options = list(
-          paging = FALSE,      # Disable pagination to show all rows.
-          dom = 'Bfrt',        # 'Bfrt' = Buttons, filter, processing, table.
-          scrollY = "600px",   # Adds a vertical scrollbar.
+          paging = FALSE,
+          dom = 'Bfrt',
+          scrollY = "600px",
           scrollX = TRUE,
           buttons = c('copy', 'csv', 'excel', 'pdf'),
           columnDefs = list(
-            # Hide the raw numeric columns used for sorting
             list(visible = FALSE, targets = c("sell_value_num", "sheckle_price_num", "robux_price_num"))
           )
         )
       ) %>%
         formatStyle(
           'Rarity Tier',
+          color = styleEqual(
+            c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
+            c('#FFFFFF', '#FFFFFF', '#FFFFFF', '#153318', '#FFFFFF', '#FFFFFF', '#153318')
+          ),
           backgroundColor = styleEqual(
             c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
-            c('#D3D3D3', '#A9DFBF', '#AED6F1', '#F9E79F', '#F5CBA7', '#EDBB99', '#D2B4DE')
-          )
+            c('#7f8c8d', '#347433', '#2980B9', '#FFC107', '#FF6F3C', '#B22222', '#a96ded')
+          ),
+          fontWeight = 'bold',
+          borderRadius = '4px',
+          padding = '3px 8px'
         ) %>%
         formatStyle(
           'Multi Harvest',
-          color = styleEqual(c("Yes", "No"), c('green', 'red')),
-          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+          color = styleEqual(c("Yes", "No", "✓", "✗", "Unknown"), c('#2ECC71', '#E74C3C', '#2ECC71', '#E74C3C', 'grey')),
+          fontWeight = 'bold'
         ) %>%
         formatStyle(
           'Obtainable',
-          color = styleEqual(c("Yes", "No"), c('green', 'red')),
-          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+          color = styleEqual(c("Yes", "No", "✓", "✗", "Unknown"), c('#2ECC71', '#E74C3C', '#2ECC71', '#E74C3C', 'grey')),
+          fontWeight = 'bold'
         ) %>%
         formatCurrency('sheckle_price_num', currency = "", digits = 0) %>%
         formatCurrency('sell_value_num', currency = "", digits = 0) %>%
@@ -1323,50 +1277,50 @@ encyclopedia_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName = "encyclopedia",
+          # --- MODIFICATION: Updated internal CSS for custom tables to match the new theme ---
           tags$head(
             tags$style(HTML("
-              /* --- Card Styles (for Gear, Eggs, etc.) --- */
-              .encyclopedia-card {
-                background-color: #ffffff; border: 1px solid #eaeaea; border-radius: 8px;
-                padding: 15px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.08);
-                transition: all 0.3s ease-in-out; display: flex; flex-direction: column;
-                align-items: center; text-align: center; height: 100%;
-              }
-              .encyclopedia-card:hover { transform: translateY(-5px); box-shadow: 0 8px 16px rgba(0,0,0,0.12); }
-              .encyclopedia-card h4 {
-                color: #8E44AD; margin-top: 0; margin-bottom: 15px; border-bottom: 2px solid #f4f4f4;
-                padding-bottom: 10px; width: 100%; font-weight: 600;
-              }
-              .encyclopedia-card p { margin: 5px 0; width: 100%; text-align: left; }
-              .card-details { font-size: 0.9em; color: #555; }
-              .card-details strong { color: #333; }
               .encyclopedia-section-header {
-                margin-top: 20px; margin-bottom: 10px; border-left: 4px solid #8E44AD; padding-left: 15px;
+                margin-top: 20px; margin-bottom: 10px; border-left: 4px solid var(--accent-yellow); 
+                padding-left: 15px;
               }
-
-              /* --- Table Styles --- */
               .wiki-table {
                 width: 100%; border-collapse: collapse; margin-bottom: 25px;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                background-color: var(--bg-card);
+                border: 1px solid var(--border-color);
               }
-              .wiki-table th, .wiki-table td { border: 1px solid #ddd; padding: 10px 12px; text-align: left; }
-              
-              .wiki-table thead th { color: black; font-weight: bold; font-size: 1.1em; text-align: center; }
-              
-              .wiki-table .rarity-header-Common { background-color: #A9A9A9; color: white !important; }
-              .wiki-table .rarity-header-Uncommon { background-color: #27AE60; color: white !important; }
-              .wiki-table .rarity-header-Rare { background-color: #2980B9; color: white !important; }
-              .wiki-table .rarity-header-Legendary { background-color: #F1C40F; color: #333 !important; }
-              .wiki-table .rarity-header-Mythical { background-color: #E67E22; color: white !important; }
-              .wiki-table .rarity-header-Divine { background-color: #C0392B; color: white !important; }
-              .wiki-table .rarity-header-Prismatic { background: linear-gradient(45deg, #f3ec78, #af4261); color: white !important; }
-              .wiki-table .rarity-header-Unavailable { background-color: #333333; color: white !important; border: 1px solid #555; }
-              
-              .wiki-table tbody tr:nth-child(even) { background-color: #f9f9f9; }
+              .wiki-table th, .wiki-table td { 
+                border: 1px solid var(--border-color); 
+                padding: 10px 12px; 
+                text-align: left;
+                color: var(--text-primary);
+              }
+              .wiki-table thead th {
+                background-color: #153318 !important;
+                color: var(--accent-yellow) !important;
+                font-weight: bold; font-size: 1.1em; text-align: center; 
+              }
+              /* Style the custom rarity headers */
+              .rarity-header-Common, .rarity-header-Uncommon, .rarity-header-Rare, 
+              .rarity-header-Legendary, .rarity-header-Mythical, .rarity-header-Divine, 
+              .rarity-header-Prismatic, .rarity-header-Unavailable {
+                  color: white !important;
+              }
+              .rarity-header-Common { background-color: #7f8c8d !important; }
+              .rarity-header-Uncommon { background-color: var(--accent-green) !important; }
+              .rarity-header-Rare { background-color: #2980B9 !important; }
+              .rarity-header-Legendary { background-color: var(--accent-yellow) !important; color: #153318 !important; }
+              .rarity-header-Mythical { background-color: var(--accent-orange) !important; }
+              .rarity-header-Divine { background-color: var(--accent-red) !important; }
+              .rarity-header-Prismatic { background: linear-gradient(45deg, #a96ded, #FFC107); }
+
+              .wiki-table tbody tr:nth-child(even) { background-color: rgba(0,0,0,0.2); }
+              .wiki-table tbody tr:hover { background-color: rgba(255, 193, 7, 0.1); }
             "))
           ),
           
-          h2("Grow a Garden Encyclopedia of Knowledge"),
+          h2(class = "animated-gradient-text", "Grow a Garden Encyclopedia"),
           p("An exhaustive collection of all items, creatures, and phenomena in the game."),
           
           tabBox(
@@ -1386,7 +1340,7 @@ encyclopedia_ui <- function(id) {
                      div(class="encyclopedia-section-header", h3("Pet Eggs")),
                      p("Eggs that can be purchased or found to hatch into helpful pets."),
                      uiOutput(ns("egg_table_ui")),
-                     hr(),
+                     hr(style="border-color: var(--border-color);"),
                      div(class="encyclopedia-section-header", h3("Hatchable Pets")),
                      p("Pets that can be hatched from the eggs listed above, providing unique bonuses."),
                      uiOutput(ns("pet_tables_ui"))
@@ -1410,55 +1364,63 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
     # --- Seeds & Crops Table ---
     output$seeds_table_detailed <- renderDT({
       df <- all_encyclopedia_data()$seeds
-      req(df)
+      req(df, nrow(df) > 0)
       
       df_display <- df %>%
         mutate(
           Image = paste0('<img src="', image_url, '" height="50" alt="', name, '">'),
           sheckle_price_num = suppressWarnings(as.numeric(gsub(",", "", sheckle_price))),
-          min_value_num = suppressWarnings(as.numeric(gsub(",", "", min_value))),
+          sell_value_num = suppressWarnings(as.numeric(gsub(",", "", sell_value))),
           robux_price_num = suppressWarnings(as.numeric(gsub(",", "", robux_price)))
         ) %>%
         select(
-          Image,
-          `Crop Name` = name, `Sheckle Price` = sheckle_price, `Min Value` = min_value,
-          `Robux Price` = robux_price, Stock = stock, Tier = tier,
-          `Multi Harvest` = multi_harvest, Obtainable = obtainable,
-          sheckle_price_num, min_value_num, robux_price_num
+          Image, `Crop Name` = name, `Sheckle Price` = sheckle_price, 
+          `Sell Value` = sell_value, `Robux Price` = robux_price, 
+          Stock = stock, Tier = rarity, `Multi Harvest` = multi_harvest, 
+          Obtainable = obtainable, sheckle_price_num, sell_value_num, robux_price_num
         )
       
+      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         escape = FALSE,
-        # *** MODIFICATION START: Disable pagination and add vertical scroll ***
+        extensions = 'Buttons',
+        class = 'display compact hover',
         options = list(
-          paging = FALSE,       # Disable pagination to show all rows
-          dom = 'ft',           # Show only filter and table
-          scrollY = "600px",    # Add vertical scroll
+          paging = FALSE,
+          dom = 'Bfrt',
+          scrollY = "600px",
           scrollX = TRUE,
+          buttons = c('copy', 'csv', 'excel', 'pdf'),
           columnDefs = list(
             list(className = 'dt-center', targets = c(0, 5, 6, 7, 8)),
-            list(visible = FALSE, targets = c("sheckle_price_num", "min_value_num", "robux_price_num"))
+            list(visible = FALSE, targets = c("sheckle_price_num", "sell_value_num", "robux_price_num"))
           )
         ),
-        # *** MODIFICATION END ***
         rownames = FALSE
       ) %>%
         formatStyle(
           'Tier',
+          color = styleEqual(
+            c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
+            c('#FFFFFF', '#FFFFFF', '#FFFFFF', '#153318', '#FFFFFF', '#FFFFFF', '#153318')
+          ),
           backgroundColor = styleEqual(
             c("Common", "Uncommon", "Rare", "Legendary", "Mythical", "Divine", "Prismatic"),
-            c('#D3D3D3', '#A9DFBF', '#AED6F1', '#F9E79F', '#F5CBA7', '#EDBB99', '#D2B4DE')
-          )
+            c('#7f8c8d', '#347433', '#2980B9', '#FFC107', '#FF6F3C', '#B22222', '#a96ded')
+          ),
+          fontWeight = 'bold',
+          borderRadius = '4px',
+          padding = '3px 8px'
         ) %>%
         formatStyle(
           c('Multi Harvest', 'Obtainable'),
-          color = styleEqual(c("Yes", "No"), c('green', 'red')),
-          fontWeight = styleEqual(c("Yes", "No"), c('bold', 'normal'))
+          color = styleEqual(c("Yes", "No", "✓", "✗", "Unknown"), c('#2ECC71', '#E74C3C', '#2ECC71', '#E74C3C', 'grey')),
+          fontWeight = 'bold'
         )
     })
     
-    # --- Gear table logic (No changes needed, already shows all) ---
+    # --- Gear table logic (UI styled via internal CSS block) ---
     output$gear_tables_ui <- renderUI({
       df <- all_encyclopedia_data()$gear
       req(df, nrow(df) > 0)
@@ -1504,7 +1466,7 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       tagList(tables_list)
     })
     
-    # --- EGG & ANIMAL LOGIC (No changes needed, already shows all) ---
+    # --- EGG & ANIMAL LOGIC (UI styled via internal CSS block) ---
     output$egg_table_ui <- renderUI({
       df <- all_encyclopedia_data()$eggs_and_pets$eggs
       req(df, nrow(df) > 0)
@@ -1560,7 +1522,7 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       tagList(tables_list)
     })
     
-    # --- Mutations Table ---
+    # --- Mutations Table (Styled by global styles.css) ---
     output$mutations_table_detailed <- renderDT({
       df <- all_encyclopedia_data()$mutations
       req(df)
@@ -1576,17 +1538,15 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
       
       datatable(
         df_display,
-        escape = FALSE, 
-        # *** MODIFICATION START: Disable pagination and add vertical scroll ***
+        escape = FALSE,
         options = list(
-          paging = FALSE,       # Disable pagination to show all rows
-          dom = 'ft',           # Show only filter and table
-          scrollY = "600px",    # Add vertical scroll
+          paging = FALSE,
+          dom = 'ft',
+          scrollY = "600px",
           columnDefs = list(
             list(className = 'dt-center', targets = 1)
           )
         ),
-        # *** MODIFICATION END ***
         rownames = FALSE
       )
     })
@@ -1608,7 +1568,8 @@ history_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName="history",
-          h2("Historical Stock Viewer"),
+          # --- MODIFICATION: Added animated class to the title ---
+          h2(class = "animated-gradient-text", "Historical Stock Viewer"),
           p("Select a timestamp to see a snapshot of the stock at that specific moment."),
           
           fluidRow(
@@ -1626,7 +1587,7 @@ history_ui <- function(id) {
           ),
           fluidRow(
             box(title="Egg Stock (Historical)", status="warning", solidHeader=TRUE, width=6, uiOutput(ns("history_egg_stock_ui"))),
-            box(title="Cosmetics Stock (Historical)", status="warning", solidHeader=TRUE, width=6, uiOutput(ns("history_cosmetics_stock_ui")))
+            box(title="Cosmetics Stock (Historical)", status="warning", solidHeader=TRUE, width=6, uiOutput(ns("cosmetics_stock_ui")))
           ),
           fluidRow(
             box(title="Honey Stock (Historical)", status="success", solidHeader=TRUE, width=6, uiOutput(ns("history_honey_stock_ui"))),
@@ -1715,4 +1676,156 @@ history_server <- function(id, history_data) {
 
 # --- END FILE: history_module.R ---
 --- END FILE: history_module.R ---
+
+--- START FILE: www/styles.css ---
+/* --- www/styles.css --- */
+
+/* 1. FONT IMPORT & ROOT VARIABLES
+------------------------------------ */
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&display=swap');
+
+:root {
+  --bg-main: #1D4B23;
+  --bg-card: rgba(52, 116, 51, 0.25);
+  --border-color: rgba(52, 116, 51, 0.6);
+  --text-primary: #f0f0f0;
+  --text-secondary: #a8b8a8;
+  --accent-green: #347433;
+  --accent-yellow: #FFC107;
+  --accent-orange: #FF6F3C;
+  --accent-red: #B22222;
+  --glow-color: var(--accent-yellow);
+}
+
+/* 2. GENERAL STYLING
+------------------------------------ */
+body, .wrapper, .content-wrapper, .main-footer, .modal-content {
+  font-family: 'Fira Code', monospace;
+  background-color: var(--bg-main) !important;
+  color: var(--text-primary) !important;
+}
+.content-wrapper { min-height: calc(100vh - 100px) !important; }
+h2, h3, h4 { font-weight: 600 !important; }
+
+.animated-gradient-text {
+  background: linear-gradient(90deg, var(--accent-yellow), var(--accent-orange), var(--text-primary), var(--accent-yellow));
+  background-size: 200% auto;
+  color: #000;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradient-pan 5s linear infinite;
+}
+
+/* 3. SHINY DASHBOARD COMPONENTS
+------------------------------------ */
+.main-header .logo, .main-header .navbar, .main-sidebar {
+  background-color: #153318 !important;
+  border-bottom-color: var(--border-color) !important;
+}
+.sidebar-menu>li.active>a {
+  border-left-color: var(--glow-color) !important;
+  background: linear-gradient(to right, rgba(255, 193, 7, 0.15), transparent);
+}
+.sidebar-menu>li>a:hover {
+  border-left-color: var(--glow-color) !important;
+  background-color: rgba(255, 193, 7, 0.08) !important;
+}
+
+/* 4. BOX & VALUE BOX STYLING
+------------------------------------ */
+.box {
+  background: var(--bg-card) !important;
+  border-top-color: var(--border-color) !important;
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+  color: var(--text-primary) !important;
+}
+.box-header { color: var(--text-primary); }
+.small-box {
+  border-radius: 10px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color); box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  transition: all 0.3s ease; animation: pulse-glow 4s infinite ease-in-out;
+}
+.small-box:hover {
+  transform: translateY(-5px) scale(1.02); box-shadow: 0 0 25px -5px var(--glow-color);
+  animation-play-state: paused;
+}
+.bg-aqua, .bg-blue { background-color: var(--accent-green) !important; }
+.bg-orange { background-color: var(--accent-orange) !important; }
+.bg-yellow { background-color: var(--accent-yellow) !important; }
+.bg-purple { background-color: var(--accent-red) !important; }
+.bg-navy { background-color: #153318 !important; }
+.bg-teal { background-color: #2E8B57 !important; }
+
+/* 5. STOCK ITEM CARD STYLING
+-------------------------------------------------------------- */
+.stock-item {
+  text-align:center; padding:10px; border:1px solid var(--border-color);
+  border-radius:8px; margin:8px; background-color:var(--bg-card); width:120px;
+  min-height:150px; display:flex; flex-direction:column; justify-content:space-between;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease;
+  backdrop-filter: blur(5px);
+}
+.stock-item:hover {
+  transform: translateY(-5px); box-shadow: 0 0 15px -3px var(--glow-color);
+  border-color: var(--glow-color); cursor: pointer; 
+}
+.stock-item-link { color: inherit; text-decoration: none; }
+.stock-item img { max-width:80px; max-height:80px; margin:0 auto; filter: drop-shadow(0 0 8px rgba(255,255,255,0.15)); }
+.stock-item p { margin-top:5px; font-weight:600; font-size: 0.9em; color: var(--text-primary); }
+.stock-item .quantity { font-size: 1.1em; color: var(--accent-yellow); font-weight: 700; text-shadow: 0 0 5px var(--accent-yellow); }
+
+/* 6. ANIMATIONS & MISC
+------------------------------------ */
+@keyframes gradient-pan { 0% { background-position: 0% center; } 100% { background-position: -200% center; } }
+@keyframes pulse-glow { 0% { box-shadow: 0 0 5px -2px rgba(255, 193, 7, 0.4); } 50% { box-shadow: 0 0 15px -2px rgba(255, 193, 7, 0.8); } 100% { box-shadow: 0 0 5px -2px rgba(255, 193, 7, 0.4); } }
+
+#loading-overlay .loader { border-top: 8px solid var(--accent-yellow) !important; }
+.modal-header, .modal-footer { border-color: var(--border-color) !important; }
+.btn-primary { background-color: var(--accent-yellow) !important; border-color: var(--accent-yellow) !important; color: var(--bg-main) !important; font-weight: bold; transition: all 0.2s ease; }
+.btn-primary:hover { box-shadow: 0 0 15px var(--accent-yellow); }
+.formula-box, .solution-box { background-color: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-primary); padding: 10px; border-radius: 5px; text-align: center; font-weight: bold; }
+
+/* 7. DROPDOWN (SELECTINPUT) STYLING & Z-INDEX FIX
+-------------------------------------------------------------- */
+.box:has(.selectize-control) { -webkit-transform: none !important; transform: none !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.selectize-dropdown, .selectize-control.single .selectize-dropdown, .selectize-control.multi .selectize-dropdown { z-index: 10000 !important; }
+.selectize-input, .selectize-input.full { background-color: var(--bg-card) !important; border: 1px solid var(--border-color) !important; border-radius: 5px !important; color: var(--text-primary) !important; font-family: 'Fira Code', monospace; box-shadow: none !important; }
+.selectize-input.focus { border-color: var(--accent-yellow) !important; }
+.selectize-dropdown, .selectize-dropdown.form-control { background-color: #153318 !important; border: 1px solid var(--accent-yellow) !important; }
+.selectize-dropdown .option { color: var(--text-secondary); padding: 8px 12px; }
+.selectize-dropdown .option:hover, .selectize-dropdown .active { background-color: rgba(255, 193, 7, 0.15) !important; color: var(--accent-yellow) !important; }
+.selectize-input .item { background-color: var(--accent-green) !important; color: var(--text-primary) !important; padding: 2px 6px; border-radius: 3px; }
+
+/* 8. DATATABLES & WIKI TABLES STYLING
+------------------------------------------------- */
+.dataTables_wrapper, .wiki-table { color: var(--text-primary) !important; }
+table.dataTable thead th, table.dataTable thead td, .wiki-table thead th { background-color: #153318 !important; color: var(--accent-yellow) !important; border-bottom: 2px solid var(--accent-yellow) !important; }
+table.dataTable tbody td, .wiki-table tbody td { color: var(--text-primary) !important; border-color: var(--border-color) !important; }
+table.dataTable.display tbody tr.odd, .wiki-table tbody tr:nth-child(odd) { background-color: var(--bg-card) !important; }
+table.dataTable.display tbody tr.even, .wiki-table tbody tr:nth-child(even) { background-color: rgba(0,0,0,0.2) !important; }
+table.dataTable.display tbody tr:hover, .wiki-table tbody tr:hover { background-color: rgba(255, 193, 7, 0.15) !important; color: var(--text-primary) !important; }
+.dataTables_filter input { background-color: var(--bg-card) !important; border: 1px solid var(--border-color) !important; color: var(--text-primary) !important; border-radius: 4px; }
+.dt-button { background-color: var(--bg-card) !important; border: 1px solid var(--border-color) !important; color: var(--text-primary) !important; box-shadow: none !important; }
+.dt-button:hover { background-color: var(--accent-green) !important; border-color: var(--accent-yellow) !important; }
+
+/* 9. TABBOX & INPUT CONTROL STYLING
+-------------------------------------------------------------- */
+.tab-content { background-color: transparent !important; border: 1px solid var(--border-color); border-top: none; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; padding: 10px; }
+.nav-tabs-custom { background: transparent !important; box-shadow: none !important; }
+.nav-tabs-custom > .nav-tabs > li > a { color: var(--text-secondary) !important; background-color: var(--bg-card) !important; border-color: var(--border-color) !important; transition: all 0.2s ease-in-out; }
+.nav-tabs-custom > .nav-tabs > li.active > a, .nav-tabs-custom > .nav-tabs > li > a:hover { color: var(--accent-yellow) !important; background-color: var(--accent-green) !important; border-color: var(--accent-yellow) !important; border-bottom-color: transparent !important; }
+.nav-tabs-custom > .nav-tabs > li.header { color: var(--text-primary) !important; font-size: 20px !important; font-weight: 600; }
+.shiny-input-radiogroup label, .shiny-input-checkboxgroup label { display: block; position: relative; padding-left: 30px; cursor: pointer; font-size: 1em; user-select: none; margin-bottom: 12px; }
+.shiny-input-radiogroup input, .shiny-input-checkboxgroup input { position: absolute; opacity: 0; cursor: pointer; }
+.shiny-input-radiogroup .radio-inline::before, .shiny-input-checkboxgroup .checkbox::before { content: ""; position: absolute; left: 0; top: 2px; height: 18px; width: 18px; background-color: var(--bg-card); border: 1px solid var(--border-color); transition: all 0.2s ease; }
+.shiny-input-radiogroup .radio-inline::before { border-radius: 50%; }
+.shiny-input-checkboxgroup .checkbox::before { border-radius: 3px; }
+.shiny-input-radiogroup input:checked ~ span::before, .shiny-input-checkboxgroup input:checked ~ span::before { content: "✓"; position: absolute; left: 4px; top: 2px; font-size: 14px; line-height: 18px; color: var(--accent-yellow); font-weight: bold; text-shadow: 0 0 5px var(--accent-yellow); }
+.shiny-input-radiogroup input:checked ~ .radio-inline::before, .shiny-input-checkboxgroup input:checked ~ .checkbox::before { background-color: var(--accent-green); border-color: var(--accent-yellow); }
+--- END FILE: www/styles.css ---
 

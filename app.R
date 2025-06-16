@@ -64,50 +64,86 @@ fetch_item_info <- function() {
 item_encyclopedia <- fetch_item_info()
 
 
-# Scraper for growagardencalculator.net to get fruit values for the calculator.
-fetch_fruit_values <- function() {
-  message("--- Fetching DETAILED Fruit Values from growagardencalculator.net ---")
-  values_url <- "https://growagardencalculator.net/grow-a-garden-values"
+# --- MODIFICATION: Final, Resilient Scraper for the New Website Structure ---
+# This function is designed to handle the new multi-table layout on the page.
+fetch_master_seed_list <- function() {
+  message("--- Fetching MASTER Seed/Crop List from growagardencalculator.net (NEW v2 Scraper) ---")
+  url <- "https://growagardencalculator.net/grow-a-garden-values"
+  
   tryCatch({
-    response <- GET(values_url)
-    stop_for_status(response, "download page")
-    page_html <- content(response, "text", encoding = "UTF-8") %>% read_html()
-    all_tables <- page_html %>% html_nodes("table")
-    if (length(all_tables) == 0) {
-      message("   No tables found on the page.")
-      return(tibble())
+    page_html <- read_html(url)
+    
+    main_content <- page_html %>% html_nodes("div.space-y-6")
+    
+    if (length(main_content) == 0) {
+      stop("Could not find main content container ('div.space-y-6'). Website structure has changed.")
     }
-    # Map over all tables and combine them into one dataframe
-    df <- all_tables %>% 
-      map_dfr(~html_table(.x, na.strings = c("", "NA", "N/A", "Unknown")) %>% mutate(across(everything(), as.character)))
-    df <- df %>%
-      rename(
-        name = `Crop Name`, sheckle_price = `Sheckle Price`,
-        sell_value = `Min Value`, robux_price = `Robux Price`,
-        stock = Stock, rarity = Tier,
-        multi_harvest = `Multi Harvest`, obtainable = Obtainable
-      ) %>%
+    
+    all_seeds_df <- main_content %>% 
+      html_nodes("div.space-y-4") %>%
+      map_dfr(function(category_block) {
+        
+        category_name <- category_block %>% 
+          html_node("h2") %>% 
+          html_text(trim = TRUE)
+        
+        table_node <- category_block %>% html_node("table")
+        if (is.na(table_node)) return(NULL)
+        
+        rows <- table_node %>% html_nodes("tr") %>% tail(-1)
+        
+        map_dfr(rows, function(row) {
+          cells <- row %>% html_nodes("td")
+          if (length(cells) < 6) return(NULL)
+          
+          tibble(
+            image_url     = cells[[1]] %>% html_node("img") %>% html_attr("src") %>% na_if(""),
+            name          = cells[[2]] %>% html_text(trim = TRUE),
+            sheckle_price = cells[[3]] %>% html_text(trim = TRUE),
+            sell_value    = cells[[4]] %>% html_text(trim = TRUE),
+            robux_price   = cells[[5]] %>% html_text(trim = TRUE),
+            rarity        = cells[[6]] %>% html_text(trim = TRUE),
+            stock         = "N/A", 
+            multi_harvest = "Unknown",
+            obtainable    = "Unknown",
+            source_category = category_name
+          )
+        })
+      })
+    
+    if (nrow(all_seeds_df) == 0) {
+      stop("Found content container, but failed to parse any valid crop rows. The table cell structure may have changed.")
+    }
+    
+    df_cleaned <- all_seeds_df %>%
       mutate(
-        # Handle special cases where sell value is listed as rarity tier
         sell_value = if_else(sell_value %in% c("Mythical", "Divine"), robux_price, sell_value),
-        # Clean up the sell value to be purely numeric
-        sell_value = as.character(sell_value),
         sell_value = str_replace_all(sell_value, "[~,]", ""),
         sell_value = str_extract(sell_value, "^\\d+"),
         sell_value = str_trim(sell_value)
       ) %>%
-      # Ensure data is clean and valid
-      filter(name != "", !is.na(name), sell_value != "", !is.na(sell_value)) %>%
+      filter(!is.na(name) & name != "", !is.na(sell_value) & sell_value != "") %>%
       filter(!is.na(suppressWarnings(as.numeric(sell_value))))
-    message("   Detailed fruit values scraped successfully for ", nrow(df), " fruits.")
-    return(df)
+    
+    message("   Master seed list scraped and cleaned successfully for ", nrow(df_cleaned), " fruits from multiple tables.")
+    return(df_cleaned)
+    
   }, error = function(e) {
-    message("   ERROR fetching fruit values: ", e$message)
-    showNotification(paste("Failed to fetch fruit values from", values_url), type = "error", duration = 10)
-    return(tibble())
+    message("   ERROR fetching master seed list: ", e$message)
+    showNotification(
+      paste("Critical Scraper Failure:", e$message), 
+      type = "error", 
+      duration = 15
+    )
+    return(
+      tibble(
+        image_url = character(), name = character(), sheckle_price = character(),
+        sell_value = character(), robux_price = character(), stock = character(),
+        rarity = character(), multi_harvest = character(), obtainable = character()
+      )
+    )
   })
 }
-
 
 # Scraper for the mutations page, used by the Calculator.
 fetch_mutation_data <- function() {
@@ -152,7 +188,6 @@ fetch_public_api_data <- function() {
     stock_data <- content(stock_response, "parsed")
     message("   Stock data fetched successfully.")
     
-    # Helper function to process each stock category list from the API response
     process_stock_list <- function(stock_list) {
       if (is.null(stock_list) || length(stock_list) == 0) return(tibble(name=character(), image_url=character(), quantity=integer()))
       map_dfr(stock_list, ~tibble(name = .x$name %||% "Unknown", image_url = .x$image %||% "", quantity = .x$value %||% NA_integer_))
@@ -168,7 +203,6 @@ fetch_public_api_data <- function() {
     timer_data <- content(timer_response, "parsed")
     message("   Timer data fetched successfully.")
     
-    # Helper function to parse countdown strings like "1h30m15s" into seconds
     parse_countdown_to_seconds <- function(s) {
       if (is.null(s) || !is.character(s) || nchar(s)==0) return(NA_integer_)
       h <- as.numeric(str_extract(s, "\\d+(?=h)")); h <- ifelse(is.na(h), 0, h)
@@ -177,7 +211,6 @@ fetch_public_api_data <- function() {
       h*3600 + m*60 + s
     }
     
-    # The API sometimes returns NA for honey/egg timers; this logic provides a fallback.
     egg_s <- parse_countdown_to_seconds(timer_data$egg$countdown); honey_s <- parse_countdown_to_seconds(timer_data$honey$countdown)
     if (is.na(honey_s)) honey_s <- egg_s; if (is.na(egg_s)) egg_s <- honey_s
     
@@ -191,7 +224,6 @@ fetch_public_api_data <- function() {
     weather_response <- GET(weather_url); stop_for_status(weather_response, "fetch weather data")
     weather_data_raw <- content(weather_response, "parsed")
     
-    # Filter for weather events that are currently active based on unix timestamps
     current_unix_time <- as.numeric(Sys.time())
     truly_active_weather <- Filter(function(w) (w$start_duration_unix %||% 0) <= current_unix_time && (w$end_duration_unix %||% 0) >= current_unix_time, weather_data_raw$weather)
     weather_names <- if (length(truly_active_weather) > 0) truly_active_weather[[1]]$weather_name else "Clear Skies"
@@ -208,40 +240,6 @@ fetch_public_api_data <- function() {
 
 
 # --- Encyclopedia Scraping Functions (for the Encyclopedia Tab) ---
-# These run once at startup to populate the encyclopedia tab.
-
-fetch_detailed_seed_data <- function() {
-  message("--- Fetching DETAILED Seed/Crop Data from growagardencalculator.net ---")
-  url <- "https://growagardencalculator.net/grow-a-garden-values"
-  tryCatch({
-    page <- read_html(url)
-    all_tables <- page %>% html_nodes("table")
-    if (length(all_tables) == 0) stop("Could not find any tables on the seed/crop values page.")
-    
-    all_seeds_df <- all_tables %>%
-      map_dfr(function(table_node) {
-        rows <- table_node %>% html_nodes("tr") %>% tail(-1)
-        map_dfr(rows, function(row) {
-          cells <- row %>% html_nodes("td")
-          if (length(cells) != 9) return(NULL)
-          tibble(
-            image_url     = cells[[1]] %>% html_node("img") %>% html_attr("src"), name          = cells[[2]] %>% html_text(trim = TRUE),
-            sheckle_price = cells[[3]] %>% html_text(trim = TRUE), min_value     = cells[[4]] %>% html_text(trim = TRUE),
-            robux_price   = cells[[5]] %>% html_text(trim = TRUE), stock         = cells[[6]] %>% html_text(trim = TRUE),
-            tier          = cells[[7]] %>% html_text(trim = TRUE), multi_harvest = cells[[8]] %>% html_text(trim = TRUE),
-            obtainable    = cells[[9]] %>% html_text(trim = TRUE)
-          )
-        })
-      })
-    message("   Successfully scraped ", nrow(all_seeds_df), " detailed seeds/crops.")
-    return(all_seeds_df)
-  }, error = function(e) {
-    message("   ERROR fetching detailed seed data: ", e$message)
-    showNotification(paste("Failed to fetch detailed seed data from", url), type = "error", duration = 10)
-    return(tibble())
-  })
-}
-
 fetch_ign_gear_data <- function() {
   message("--- Fetching Gear Data from IGN ---")
   url <- "https://www.ign.com/wikis/grow-a-garden/Grow_a_Garden_Gear_Guide"
@@ -339,7 +337,6 @@ fetch_pet_chances_data <- function() {
     return(chances_df)
   }, error = function(e) {
     message("   ERROR fetching pet chance data: ", e$message)
-    showNotification(paste("Failed to fetch pet chance data from", url), type = "error", duration = 10)
     return(tibble())
   })
 }
@@ -377,8 +374,7 @@ fetch_detailed_mutations_data <- function() {
 # =============================================================
 ui <- dashboardPage(
   title = "Grow a Garden Dashboard",
-  skin = "purple",
-  dashboardHeader(title = "Grow a Garden Dashboard"),
+  dashboardHeader(title = "Grow a Garden"), # Shortened title for mobile
   dashboardSidebar(
     sidebarMenu(id="tabs", 
                 menuItem("Live Dashboard", tabName="dashboard", icon=icon("dashboard")), 
@@ -389,32 +385,20 @@ ui <- dashboardPage(
   ),
   dashboardBody(
     shinyjs::useShinyjs(),
-    # --- Custom CSS for styling the application ---
-    tags$head(tags$style(HTML("
-      /* Style for item links in the live dashboard */
-      .stock-item-link { color: inherit; text-decoration: none; }
-      /* Style for individual item boxes (cards) */
-      .stock-item {text-align:center; padding:10px; border:1px solid #ddd; border-radius:5px; margin:5px; background-color:#f9f9f9; width:120px; min-height:150px; /* MODIFIED: Changed height to min-height for flexible wrapping */ display:flex; flex-direction:column; justify-content:space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: transform 0.2s, box-shadow 0.2s;}
-      .stock-item:hover { transform: translateY(-3px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); cursor: pointer; }
-      .stock-item img {max-width:80px; max-height:80px; margin:0 auto;}
-      .stock-item p {margin-top:5px; font-weight:bold; font-size: 0.9em;}
-      .stock-item .quantity {font-size: 1.1em; color: #2c3e50; font-weight: bold;}
-      /* Loading overlay styles */
-      #loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 10000; display: flex; justify-content: center; align-items: center; }
-      .loader { border: 8px solid #f3f3f3; border-top: 8px solid #8E44AD; border-radius: 50%; width: 60px; height: 60px; animation: spin 1s linear infinite; }
-      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-      /* Responsive header title for small screens */
-      @media (max-width: 767px) { .main-header .logo { font-size: 12px; overflow: hidden; text-overflow: ellipsis; } }
-      /* Styles for the calculator tab */
-      .formula-box { background-color: #00c0ef; color: white; padding: 10px; border-radius: 3px; text-align: center; font-weight: bold; }
-      .solution-box { background-color: #f39c12; color: white; padding: 10px; border-radius: 3px; text-align: center; font-weight: bold; font-family: monospace; font-size: 1.2em; word-wrap: break-word; }
-    "))),
-    # The loading overlay div, hidden by default
+    
+    # --- MODIFICATION: Link to external stylesheet with cache-busting ---
+    tags$head(
+      tags$link(rel = "stylesheet", type = "text/css", 
+                href = paste0("styles.css?v=", as.numeric(Sys.time())))
+    ),
+    
     tags$div(id = "loading-overlay", style = "display: none;", div(class="loader")),
     
     # --- Main Tab Content ---
     tabItems(
       tabItem(tabName="dashboard",
+              h2(class="animated-gradient-text", "Live Dashboard"),
+              p("Real-time stock, timer, and weather information from the game."),
               fluidRow(
                 column(8,
                        fluidRow(
@@ -445,7 +429,6 @@ ui <- dashboardPage(
                 box(title="Night Stock", status="primary", solidHeader=TRUE, width=6, uiOutput("night_stock_ui"))
               )
       ),
-      # UI from modules
       history_ui("history_module"),
       calculator_ui("calculator"),
       encyclopedia_ui("encyclopedia_module")
@@ -459,18 +442,15 @@ ui <- dashboardPage(
 server <- function(input, output, session) {
   message("Shiny server function initialized.")
   
-  # Reactive values for managing shared state and data
-  SharedState <- reactiveValues(status = "idle") # Prevents multiple simultaneous fetches
+  SharedState <- reactiveValues(status = "idle")
   scraped_data <- reactiveVal()
   timers_rv <- reactiveVal(list())
   fruit_data_rv <- reactiveVal()
   
-  # --- Data Management for Fruit Calculator ---
-  # Function to fetch and save the latest fruit data from the web scraper
   fetch_and_save_fruit_data <- function() {
     shinyjs::show("loading-overlay")
     showNotification("Fetching latest fruit data...", type = "message", duration = 5)
-    new_data <- fetch_fruit_values()
+    new_data <- fetch_master_seed_list()
     
     if (nrow(new_data) > 0) {
       write.csv(new_data, FRUIT_VALUES_FILE, row.names = FALSE)
@@ -483,7 +463,6 @@ server <- function(input, output, session) {
     return(new_data)
   }
   
-  # On app start, load fruit data from local cache if it exists, otherwise fetch it.
   if (file.exists(FRUIT_VALUES_FILE)) {
     message("Loading fruit data from local CSV file.")
     fruit_data_rv(read.csv(FRUIT_VALUES_FILE, check.names = FALSE))
@@ -492,17 +471,13 @@ server <- function(input, output, session) {
     fetch_and_save_fruit_data()
   }
   
-  
-  # --- Core Data Fetching for Live Dashboard ---
   fetch_data <- function() {
-    if (isolate(SharedState$status) == "fetching") return() # Prevent re-entry
+    if (isolate(SharedState$status) == "fetching") return()
     SharedState$status <- "fetching"
     shinyjs::show("loading-overlay")
     message("fetch_data() triggered. Status: fetching")
     
-    # Store old timers to check if a reset happened
     old_timers <- isolate(timers_rv())
-    
     data <- fetch_public_api_data()
     
     if (!is.null(data$error)) {
@@ -512,26 +487,21 @@ server <- function(input, output, session) {
     scraped_data(data)
     timers_rv(data$timers)
     
-    # --- MODIFICATION: Schedule the 40-second follow-up refresh ---
-    # Check if the Seed Stock timer specifically was low before and is high now
     seed_timer_was_low <- !is.null(old_timers$`Seed Stock`) && old_timers$`Seed Stock` <= 1
-    seed_timer_is_high <- !is.null(data$timers$`Seed Stock`) && data$timers$`Seed Stock` > 260 # 4:20
+    seed_timer_is_high <- !is.null(data$timers$`Seed Stock`) && data$timers$`Seed Stock` > 260
     
     if (seed_timer_was_low && seed_timer_is_high) {
       message("Seed/Gear timer was just reset. Scheduling a 40-second follow-up refresh.")
       shinyjs::delay(40000, shinyjs::runjs(
-        # We use a namespaced input ID and Math.random() to ensure the event always fires
         paste0("Shiny.setInputValue('", session$ns("special_refresh_trigger"), "', Math.random(), {priority: 'event'});")
       ))
     }
     
-    # If fetch was successful, append the new data to the history file
     if (is.null(data$error) && length(data$stocks) > 0) {
       history_df <- map_dfr(data$stocks, ~as.data.frame(.x), .id="category") %>%
         mutate(timestamp = data$timestamp, quantity = as.character(quantity)) %>%
         select(timestamp, category, item_name = name, quantity, image_url)
       
-      # Safer check to ensure there's data to write
       if(nrow(history_df) > 0) {
         write.table(history_df, HISTORY_FILE, sep=",", row.names=F, append=file.exists(HISTORY_FILE), col.names=!file.exists(HISTORY_FILE))
       }
@@ -542,18 +512,14 @@ server <- function(input, output, session) {
     message("Fetch complete. Status: idle")
   }
   
-  # Initial data fetch when the app starts
   fetch_data()
   
-  # --- MODIFICATION: New observer for the special 40-second refresh ---
   observeEvent(input$special_refresh_trigger, {
     message("40-second follow-up refresh triggered for Seed/Gear.")
     showNotification("Performing 40-second follow-up refresh...", type="message", duration=4)
     fetch_data()
   })
   
-  # --- Timer and Refresh Logic ---
-  # This observer ticks every second to countdown the timers and triggers the MAIN refresh at 0:00
   observe({ 
     req(SharedState$status == "idle") 
     invalidateLater(1000, session)
@@ -562,15 +528,13 @@ server <- function(input, output, session) {
     temp_timers <- isolate(timers_rv())
     if (length(temp_timers) == 0) return()
     
-    # Decrement all timers
     for (name in names(temp_timers)) {
       if (is.numeric(temp_timers[[name]]) && !is.na(temp_timers[[name]]) && temp_timers[[name]] > 0) {
         temp_timers[[name]] <- temp_timers[[name]] - 1
       }
     }
-    timers_rv(temp_timers) # Update the reactive value with the new decremented times
+    timers_rv(temp_timers)
     
-    # Check if ANY timer has expired to trigger the main refresh
     if (any(unlist(temp_timers) <= 0, na.rm = TRUE)) {
       message("A timer hit zero. Triggering main auto-refresh.")
       showNotification("A timer finished! Refreshing...", type="warning", duration=5)
@@ -578,10 +542,8 @@ server <- function(input, output, session) {
     }
   })
   
-  # Manual refresh button
   observeEvent(input$refresh_button, { message("Manual refresh triggered."); fetch_data() })
   
-  # Scheduled 5-minute refresher to ensure data doesn't become stale
   observe({
     invalidateLater(300000, session) 
     if (isolate(SharedState$status) == "idle") {
@@ -590,14 +552,12 @@ server <- function(input, output, session) {
     }
   })
   
-  # --- Dashboard UI Rendering ---
   output$last_updated_text <- renderText({
     data <- scraped_data(); req(data)
     if (!is.null(data$error)) return(paste("Last attempt failed:", format(data$timestamp, "%I:%M:%S %p")))
     paste("Last updated:", format(data$timestamp, "%I:%M:%S %p"))
   })
   
-  # Helper function to create timer value boxes, reducing code duplication
   create_timer_output <- function(timer_name, icon_name, color) {
     renderValueBox({
       req(scraped_data())
@@ -612,7 +572,6 @@ server <- function(input, output, session) {
     })
   }
   
-  # Assign helper to each timer output
   output$seed_timer_box <- create_timer_output("Seed Stock", "seedling", "aqua")
   output$gear_timer_box <- create_timer_output("Gear Stock", "cogs", "blue")
   output$egg_timer_box <- create_timer_output("Egg Stock", "egg", "orange")
@@ -620,15 +579,12 @@ server <- function(input, output, session) {
   output$cosmetics_timer_box <- create_timer_output("Cosmetics Stock", "gem", "purple")
   output$night_timer_box <- create_timer_output("Night Stock", "moon", "navy")
   
-  # Weather value box
   output$weather_box <- renderValueBox({
     data <- scraped_data(); req(data)
     if (!is.null(data$error)) return(valueBox("API OFFLINE", "Current Weather", icon=icon("exclamation-triangle"), color="red"))
     valueBox(data$weather, "Current Weather", icon=icon("cloud-sun-rain"), color="teal")
   })
   
-  # --- Item Grid and Modal Logic ---
-  # Function to show a detailed modal for a clicked item
   show_item_modal <- function(item_name) {
     info <- item_encyclopedia[[item_name]]
     live_quantity <- "Not in stock"
@@ -645,7 +601,6 @@ server <- function(input, output, session) {
     showModal(modalDialog(title = item_name, modal_ui, easyClose = TRUE, footer = modalButton("Close")))
   }
   
-  # Dynamically create observers for each clickable item in the encyclopedia
   if(length(item_encyclopedia) > 0) {
     lapply(names(item_encyclopedia), function(item_name) {
       button_id <- paste0("show_details_", gsub("[^A-Za-z0-9]", "", item_name))
@@ -653,8 +608,6 @@ server <- function(input, output, session) {
     })
   }
   
-  # Helper function to create the item grid UI, reducing code duplication.
-  # This function's output is clean and does NOT produce the overlapping text from the screenshot.
   create_item_grid <- function(category_name) {
     renderUI({
       data <- scraped_data(); req(data); if (!is.null(data$error)) return(p("Could not load stock data.", style="color:red; text-align:center;"))
@@ -663,25 +616,22 @@ server <- function(input, output, session) {
       item_html <- lapply(1:nrow(df), function(i) {
         item_name <- df$name[i]; button_id <- paste0("show_details_",gsub("[^A-Za-z0-9]","",item_name))
         
-        # This defines the content of a single item card
         label_div <- tags$div(class="stock-item", 
                               tags$img(src=df$image_url[i], alt=item_name), 
                               tags$p(item_name), 
                               tags$p(class="quantity", paste("x", df$quantity[i]))
         )
         
-        # If the item exists in our encyclopedia, make it a clickable actionLink
         if (item_name %in% names(item_encyclopedia)) {
           actionLink(inputId=button_id, label=label_div, class="stock-item-link")
         } else {
-          label_div # Otherwise, just display the div
+          label_div
         }
       })
       tags$div(style="display:flex; flex-wrap:wrap; justify-content:center;", item_html)
     })
   }
   
-  # Assign helper to each stock UI output
   output$seed_stock_ui <- create_item_grid("Seed Stock"); output$gear_stock_ui <- create_item_grid("Gear Stock");
   output$egg_stock_ui <- create_item_grid("Egg Stock"); output$cosmetics_stock_ui <- create_item_grid("Cosmetics Stock");
   output$honey_stock_ui <- create_item_grid("Honey Stock"); output$night_stock_ui <- create_item_grid("Night Stock")
@@ -689,7 +639,6 @@ server <- function(input, output, session) {
   
   # --- Data Provisioning for Modules ---
   
-  # This reactive reads the history CSV file ONLY when new data is fetched.
   history_data <- eventReactive(scraped_data(), {
     if (!file.exists(HISTORY_FILE)) return(data.frame()) 
     read.csv(HISTORY_FILE) %>% 
@@ -699,12 +648,10 @@ server <- function(input, output, session) {
       select(-timestamp_val)
   }, ignoreNULL = FALSE)
   
-  # This reactive value fetches and holds ALL encyclopedia data at startup.
-  # It is then passed to the encyclopedia module.
   encyclopedia_data <- reactiveVal({
     message("--- Aggregating all encyclopedia data at startup... ---")
     ign_data <- fetch_ign_egg_data()
-    Sys.sleep(1) # Be polite to the servers
+    Sys.sleep(1) 
     pet_chances <- fetch_pet_chances_data()
     Sys.sleep(1)
     
@@ -717,14 +664,13 @@ server <- function(input, output, session) {
     }
     
     list(
-      seeds = fetch_detailed_seed_data(),
+      seeds = fetch_master_seed_list(),
       gear = fetch_ign_gear_data(),
       eggs_and_pets = ign_data,
       mutations = fetch_detailed_mutations_data()
     )
   })
   
-  # This reactive creates a named list of fruit values for the calculator's dropdown
   fruit_value_list_rv <- reactive({
     df <- fruit_data_rv(); req(df, nrow(df) > 0)
     df_calc <- df %>% mutate(sell_value_numeric = as.numeric(sell_value)) %>% filter(!is.na(sell_value_numeric))
@@ -733,22 +679,18 @@ server <- function(input, output, session) {
   
   # --- Module Server Initializations ---
   
-  # Calculator Module
   calculator_return <- calculator_server("calculator", 
                                          fruit_data_rv = fruit_data_rv, 
                                          fruit_value_list_rv = fruit_value_list_rv,
                                          mutation_data = mutation_data)
   
-  # Listen for the "Fetch Latest" button click from the calculator module
   observeEvent(calculator_return$fetch_data(), {
     req(calculator_return$fetch_data() > 0) 
     fetch_and_save_fruit_data()
   }, ignoreInit = TRUE) 
   
-  # History Module
   history_server("history_module", history_data = history_data)
   
-  # Encyclopedia Module
   encyclopedia_server("encyclopedia_module", all_encyclopedia_data = encyclopedia_data)
 }
 

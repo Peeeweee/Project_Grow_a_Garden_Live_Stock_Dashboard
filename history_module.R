@@ -8,7 +8,8 @@ history_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName="history",
-          h2("Historical Stock Viewer"),
+          # --- MODIFICATION: Added animated class to the title ---
+          h2(class = "animated-gradient-text", "Historical Stock Viewer"),
           p("Select a timestamp to see a snapshot of the stock at that specific moment."),
           
           fluidRow(
@@ -26,7 +27,7 @@ history_ui <- function(id) {
           ),
           fluidRow(
             box(title="Egg Stock (Historical)", status="warning", solidHeader=TRUE, width=6, uiOutput(ns("history_egg_stock_ui"))),
-            box(title="Cosmetics Stock (Historical)", status="warning", solidHeader=TRUE, width=6, uiOutput(ns("history_cosmetics_stock_ui")))
+            box(title="Cosmetics Stock (Historical)", status="warning", solidHeader=TRUE, width=6, uiOutput(ns("cosmetics_stock_ui")))
           ),
           fluidRow(
             box(title="Honey Stock (Historical)", status="success", solidHeader=TRUE, width=6, uiOutput(ns("history_honey_stock_ui"))),
