@@ -386,8 +386,11 @@ ui <- dashboardPage(
   dashboardBody(
     shinyjs::useShinyjs(),
     
-    # --- MODIFICATION: Link to external stylesheet with cache-busting ---
     tags$head(
+      ### MODIFICATION: Added viewport meta tag for proper mobile scaling.
+      tags$meta(name = "viewport", content = "width=device-width, initial-scale=1.0"),
+      
+      # Link to external stylesheet with cache-busting
       tags$link(rel = "stylesheet", type = "text/css", 
                 href = paste0("styles.css?v=", as.numeric(Sys.time())))
     ),
@@ -410,7 +413,9 @@ ui <- dashboardPage(
                 ),
                 column(4,
                        valueBoxOutput("weather_box", width=12),
+                       ### MODIFICATION: Made control panel collapsible and collapsed by default to save space on mobile.
                        box(title = "Control Panel", status = "primary", solidHeader = TRUE, width = 12, align = "center",
+                           collapsible = TRUE, collapsed = TRUE,
                            actionButton("refresh_button", "Refresh Now", icon = icon("refresh"), class = "btn-lg btn-primary"), br(),br(),
                            p(textOutput("last_updated_text"))
                        )
@@ -628,7 +633,8 @@ server <- function(input, output, session) {
           label_div
         }
       })
-      tags$div(style="display:flex; flex-wrap:wrap; justify-content:center;", item_html)
+      ### MODIFICATION: Changed to a container class for responsive CSS styling.
+      tags$div(class="stock-grid-container", item_html)
     })
   }
   

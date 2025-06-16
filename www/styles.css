@@ -1,4 +1,4 @@
-/* --- www/styles.css --- */
+/* --- START FILE: www/styles.css --- */
 
 /* 1. FONT IMPORT & ROOT VARIABLES
 ------------------------------------ */
@@ -83,12 +83,21 @@ h2, h3, h4 { font-weight: 600 !important; }
 
 /* 5. STOCK ITEM CARD STYLING
 -------------------------------------------------------------- */
+.stock-grid-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .stock-item {
   text-align:center; padding:10px; border:1px solid var(--border-color);
-  border-radius:8px; margin:8px; background-color:var(--bg-card); width:120px;
+  border-radius:8px; background-color:var(--bg-card);
   min-height:150px; display:flex; flex-direction:column; justify-content:space-between;
   box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease;
   backdrop-filter: blur(5px);
+  flex: 1 1 120px;
+  max-width: 130px;
 }
 .stock-item:hover {
   transform: translateY(-5px); box-shadow: 0 0 15px -3px var(--glow-color);
@@ -123,6 +132,11 @@ h2, h3, h4 { font-weight: 600 !important; }
 
 /* 8. DATATABLES & WIKI TABLES STYLING
 ------------------------------------------------- */
+.wiki-table-wrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
 .dataTables_wrapper, .wiki-table { color: var(--text-primary) !important; }
 table.dataTable thead th, table.dataTable thead td, .wiki-table thead th { background-color: #153318 !important; color: var(--accent-yellow) !important; border-bottom: 2px solid var(--accent-yellow) !important; }
 table.dataTable tbody td, .wiki-table tbody td { color: var(--text-primary) !important; border-color: var(--border-color) !important; }
@@ -147,3 +161,80 @@ table.dataTable.display tbody tr:hover, .wiki-table tbody tr:hover { background-
 .shiny-input-checkboxgroup .checkbox::before { border-radius: 3px; }
 .shiny-input-radiogroup input:checked ~ span::before, .shiny-input-checkboxgroup input:checked ~ span::before { content: "✓"; position: absolute; left: 4px; top: 2px; font-size: 14px; line-height: 18px; color: var(--accent-yellow); font-weight: bold; text-shadow: 0 0 5px var(--accent-yellow); }
 .shiny-input-radiogroup input:checked ~ .radio-inline::before, .shiny-input-checkboxgroup input:checked ~ .checkbox::before { background-color: var(--accent-green); border-color: var(--accent-yellow); }
+
+
+/*
+======================================================================
+10. RESPONSIVE DESIGN & MOBILE STYLES
+======================================================================
+*/
+
+/* For Tablets and larger phones (~768px to 991px) */
+@media (max-width: 991px) {
+    .small-box h3 {
+        font-size: 30px; /* Slightly smaller value box numbers */
+    }
+}
+
+/* For Mobile Phones (<768px) */
+@media (max-width: 767px) {
+    .content-wrapper {
+        padding: 5px !important; /* Reduce padding to maximize space */
+    }
+
+    h2.animated-gradient-text {
+        font-size: 24px; /* Smaller main titles */
+    }
+    
+    .main-header .logo {
+        width: 100% !important;
+        text-align: left !important;
+    }
+
+    /* Make value boxes more compact */
+    .small-box {
+        text-align: center;
+    }
+    .small-box h3 {
+        font-size: 24px;
+    }
+    .small-box p {
+        font-size: 13px;
+    }
+    .small-box .icon {
+        display: none; /* Hide the large icon to save space */
+    }
+
+    /* Make the control panel refresh button full-width and more touch-friendly */
+    #refresh_button {
+        width: 100%;
+        font-size: 18px;
+        padding: 10px;
+    }
+    
+    .stock-item {
+        /* Allow items to be a bit smaller on mobile, but not too small */
+        flex-basis: 90px;
+        min-height: 130px;
+    }
+    .stock-item img {
+        max-width: 60px;
+        max-height: 60px;
+    }
+
+    /* Adjust Datatable controls to stack vertically */
+    .dataTables_wrapper .dt-buttons,
+    .dataTables_wrapper .dataTables_filter {
+        float: none !important;
+        text-align: center !important;
+        width: 100%;
+    }
+    .dataTables_wrapper .dataTables_filter {
+        margin-top: 10px;
+    }
+    .dataTables_wrapper .dataTables_filter input {
+      width: 90% !important; /* Make search bar wider */
+    }
+}
+
+/* --- END FILE: www/styles.css --- */

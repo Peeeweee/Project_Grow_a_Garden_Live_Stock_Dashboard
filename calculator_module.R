@@ -17,7 +17,6 @@ calculator_ui <- function(id) {
             "))
           ),
           
-          # --- MODIFICATION: Added animated class to the title ---
           h2(class = "animated-gradient-text", "Grow a Garden Fruit Value Calculator"),
           p("Select a crop and its mutations to calculate the final sell value based on the official formula."),
           
@@ -190,7 +189,6 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         value = final_value(),
         subtitle = paste("Value for:", input$selected_crop),
         icon = icon("dollar-sign"),
-        # --- MODIFICATION: Changed color to match new theme ---
         color = "yellow"
       )
     })
@@ -243,7 +241,6 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
           ~ if_else(is.na(.) | . %in% c("", "0", "None", "N/A"), "Unknown", as.character(.))
         ))
       
-      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         extensions = 'Buttons',

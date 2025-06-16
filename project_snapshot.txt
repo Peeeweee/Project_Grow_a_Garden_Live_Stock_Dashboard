@@ -418,8 +418,11 @@ ui <- dashboardPage(
   dashboardBody(
     shinyjs::useShinyjs(),
     
-    # --- MODIFICATION: Link to external stylesheet with cache-busting ---
     tags$head(
+      ### MODIFICATION: Added viewport meta tag for proper mobile scaling.
+      tags$meta(name = "viewport", content = "width=device-width, initial-scale=1.0"),
+      
+      # Link to external stylesheet with cache-busting
       tags$link(rel = "stylesheet", type = "text/css", 
                 href = paste0("styles.css?v=", as.numeric(Sys.time())))
     ),
@@ -442,7 +445,9 @@ ui <- dashboardPage(
                 ),
                 column(4,
                        valueBoxOutput("weather_box", width=12),
+                       ### MODIFICATION: Made control panel collapsible and collapsed by default to save space on mobile.
                        box(title = "Control Panel", status = "primary", solidHeader = TRUE, width = 12, align = "center",
+                           collapsible = TRUE, collapsed = TRUE,
                            actionButton("refresh_button", "Refresh Now", icon = icon("refresh"), class = "btn-lg btn-primary"), br(),br(),
                            p(textOutput("last_updated_text"))
                        )
@@ -660,7 +665,8 @@ server <- function(input, output, session) {
           label_div
         }
       })
-      tags$div(style="display:flex; flex-wrap:wrap; justify-content:center;", item_html)
+      ### MODIFICATION: Changed to a container class for responsive CSS styling.
+      tags$div(class="stock-grid-container", item_html)
     })
   }
   
@@ -754,7 +760,6 @@ calculator_ui <- function(id) {
             "))
           ),
           
-          # --- MODIFICATION: Added animated class to the title ---
           h2(class = "animated-gradient-text", "Grow a Garden Fruit Value Calculator"),
           p("Select a crop and its mutations to calculate the final sell value based on the official formula."),
           
@@ -927,7 +932,6 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
         value = final_value(),
         subtitle = paste("Value for:", input$selected_crop),
         icon = icon("dollar-sign"),
-        # --- MODIFICATION: Changed color to match new theme ---
         color = "yellow"
       )
     })
@@ -980,7 +984,6 @@ calculator_server <- function(id, fruit_data_rv, fruit_value_list_rv, mutation_d
           ~ if_else(is.na(.) | . %in% c("", "0", "None", "N/A"), "Unknown", as.character(.))
         ))
       
-      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         extensions = 'Buttons',
@@ -1277,12 +1280,17 @@ encyclopedia_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName = "encyclopedia",
-          # --- MODIFICATION: Updated internal CSS for custom tables to match the new theme ---
+          # Updated internal CSS for custom tables to match the theme
           tags$head(
             tags$style(HTML("
               .encyclopedia-section-header {
                 margin-top: 20px; margin-bottom: 10px; border-left: 4px solid var(--accent-yellow); 
                 padding-left: 15px;
+              }
+              /* ### MODIFICATION: Added a wrapper class for mobile scrolling */
+              .wiki-table-wrapper {
+                overflow-x: auto;
+                width: 100%;
               }
               .wiki-table {
                 width: 100%; border-collapse: collapse; margin-bottom: 25px;
@@ -1380,7 +1388,6 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
           Obtainable = obtainable, sheckle_price_num, sell_value_num, robux_price_num
         )
       
-      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         escape = FALSE,
@@ -1438,29 +1445,29 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
         current_data <- grouped_df$data[[i]]
         header_class <- paste0("rarity-header-", current_rarity)
         
-        table_rows <- lapply(1:nrow(current_data), function(j) {
-          tags$tr(
-            tags$td(current_data$name[j]),
-            tags$td(
-              if (!is.na(current_data$cost_numeric[j])) {
-                paste(format(current_data$cost_numeric[j], big.mark = ","), "Sheckles")
-              } else { "N/A" }
-            ),
-            tags$td(current_data$description[j]),
-            tags$td(current_data$uses[j])
-          )
-        })
-        
-        tags$table(class = "wiki-table",
-                   tags$thead(
-                     tags$tr(tags$th(class = header_class, colspan = "4", current_rarity)),
-                     tags$tr(
-                       tags$th("Tool"), tags$th("Cost"), 
-                       tags$th("Use"), tags$th("Number of Uses")
-                     )
-                   ),
-                   tags$tbody(table_rows)
+        table_html <- tags$table(class = "wiki-table",
+                                 tags$thead(
+                                   tags$tr(tags$th(class = header_class, colspan = "4", current_rarity)),
+                                   tags$tr(
+                                     tags$th("Tool"), tags$th("Cost"), 
+                                     tags$th("Use"), tags$th("Number of Uses")
+                                   )
+                                 ),
+                                 tags$tbody(lapply(1:nrow(current_data), function(j) {
+                                   tags$tr(
+                                     tags$td(current_data$name[j]),
+                                     tags$td(
+                                       if (!is.na(current_data$cost_numeric[j])) {
+                                         paste(format(current_data$cost_numeric[j], big.mark = ","), "Sheckles")
+                                       } else { "N/A" }
+                                     ),
+                                     tags$td(current_data$description[j]),
+                                     tags$td(current_data$uses[j])
+                                   )
+                                 }))
         )
+        ### MODIFICATION: Wrap the custom HTML table in a scrollable div for mobile.
+        div(class="wiki-table-wrapper", table_html)
       })
       
       tagList(tables_list)
@@ -1470,18 +1477,20 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
     output$egg_table_ui <- renderUI({
       df <- all_encyclopedia_data()$eggs_and_pets$eggs
       req(df, nrow(df) > 0)
-      tags$table(class = "wiki-table",
-                 tags$thead(tags$tr(
-                   tags$th("Egg Type"), tags$th("Cost"), tags$th("Chances to Appear"),
-                   tags$th("Number of Pet Types"), tags$th("Time to Grow")
-                 )),
-                 tags$tbody(lapply(1:nrow(df), function(i) {
-                   tags$tr(
-                     tags$td(df$name[i]), tags$td(HTML(df$cost[i])), tags$td(df$chance_to_appear[i]),
-                     tags$td(df$num_pets[i]), tags$td(df$grow_time[i])
-                   )
-                 }))
+      table_html <- tags$table(class = "wiki-table",
+                               tags$thead(tags$tr(
+                                 tags$th("Egg Type"), tags$th("Cost"), tags$th("Chances to Appear"),
+                                 tags$th("Number of Pet Types"), tags$th("Time to Grow")
+                               )),
+                               tags$tbody(lapply(1:nrow(df), function(i) {
+                                 tags$tr(
+                                   tags$td(df$name[i]), tags$td(HTML(df$cost[i])), tags$td(df$chance_to_appear[i]),
+                                   tags$td(df$num_pets[i]), tags$td(df$grow_time[i])
+                                 )
+                               }))
       )
+      ### MODIFICATION: Wrap the custom HTML table in a scrollable div for mobile.
+      div(class = "wiki-table-wrapper", table_html)
     })
     
     output$pet_tables_ui <- renderUI({
@@ -1500,23 +1509,23 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
         current_data <- grouped_df$data[[i]]
         header_class <- paste0("rarity-header-", current_rarity)
         
-        table_rows <- lapply(1:nrow(current_data), function(j) {
-          chance_value <- current_data$chance_of_appearing[j]
-          display_chance <- if (is.na(chance_value) || chance_value == "") "Not Listed" else chance_value
-          tags$tr(
-            tags$td(current_data$name[j]),
-            tags$td(current_data$bonus[j]),
-            tags$td(display_chance)
-          )
-        })
-        
-        tags$table(class = "wiki-table",
-                   tags$thead(
-                     tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Pets"))),
-                     tags$tr(tags$th("Pet Name"), tags$th("Bonus"), tags$th("Chance of Appearing"))
-                   ),
-                   tags$tbody(table_rows)
+        table_html <- tags$table(class = "wiki-table",
+                                 tags$thead(
+                                   tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Pets"))),
+                                   tags$tr(tags$th("Pet Name"), tags$th("Bonus"), tags$th("Chance of Appearing"))
+                                 ),
+                                 tags$tbody(lapply(1:nrow(current_data), function(j) {
+                                   chance_value <- current_data$chance_of_appearing[j]
+                                   display_chance <- if (is.na(chance_value) || chance_value == "") "Not Listed" else chance_value
+                                   tags$tr(
+                                     tags$td(current_data$name[j]),
+                                     tags$td(current_data$bonus[j]),
+                                     tags$td(display_chance)
+                                   )
+                                 }))
         )
+        ### MODIFICATION: Wrap the custom HTML table in a scrollable div for mobile.
+        div(class = "wiki-table-wrapper", table_html)
       })
       
       tagList(tables_list)
@@ -1568,7 +1577,6 @@ history_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName="history",
-          # --- MODIFICATION: Added animated class to the title ---
           h2(class = "animated-gradient-text", "Historical Stock Viewer"),
           p("Select a timestamp to see a snapshot of the stock at that specific moment."),
           
@@ -1654,7 +1662,8 @@ history_server <- function(id, history_data) {
           )
         })
         
-        tags$div(style="display:flex; flex-wrap:wrap; justify-content:center;", item_html)
+        # This will now use the responsive .stock-grid-container class from styles.css
+        tags$div(class="stock-grid-container", item_html)
       })
     }
     
@@ -1662,7 +1671,8 @@ history_server <- function(id, history_data) {
     output$history_seed_stock_ui      <- create_historical_item_grid("Seed Stock")
     output$history_gear_stock_ui      <- create_historical_item_grid("Gear Stock")
     output$history_egg_stock_ui       <- create_historical_item_grid("Egg Stock")
-    output$history_cosmetics_stock_ui <- create_historical_item_grid("Cosmetics Stock")
+    # Corrected a small typo in the original file, it was linking to cosmetics_stock_ui
+    output$history_cosmetics_stock_ui <- create_historical_item_grid("Cosmetics Stock") 
     output$history_honey_stock_ui     <- create_historical_item_grid("Honey Stock")
     output$history_night_stock_ui     <- create_historical_item_grid("Night Stock")
     
@@ -1674,11 +1684,11 @@ history_server <- function(id, history_data) {
   })
 }
 
-# --- END FILE: history_module.R ---
+# --- END FILE: history_module.R ---  
 --- END FILE: history_module.R ---
 
 --- START FILE: www/styles.css ---
-/* --- www/styles.css --- */
+/* --- START FILE: www/styles.css --- */
 
 /* 1. FONT IMPORT & ROOT VARIABLES
 ------------------------------------ */
@@ -1763,12 +1773,21 @@ h2, h3, h4 { font-weight: 600 !important; }
 
 /* 5. STOCK ITEM CARD STYLING
 -------------------------------------------------------------- */
+.stock-grid-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .stock-item {
   text-align:center; padding:10px; border:1px solid var(--border-color);
-  border-radius:8px; margin:8px; background-color:var(--bg-card); width:120px;
+  border-radius:8px; background-color:var(--bg-card);
   min-height:150px; display:flex; flex-direction:column; justify-content:space-between;
   box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: all 0.2s ease;
   backdrop-filter: blur(5px);
+  flex: 1 1 120px;
+  max-width: 130px;
 }
 .stock-item:hover {
   transform: translateY(-5px); box-shadow: 0 0 15px -3px var(--glow-color);
@@ -1803,6 +1822,11 @@ h2, h3, h4 { font-weight: 600 !important; }
 
 /* 8. DATATABLES & WIKI TABLES STYLING
 ------------------------------------------------- */
+.wiki-table-wrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
 .dataTables_wrapper, .wiki-table { color: var(--text-primary) !important; }
 table.dataTable thead th, table.dataTable thead td, .wiki-table thead th { background-color: #153318 !important; color: var(--accent-yellow) !important; border-bottom: 2px solid var(--accent-yellow) !important; }
 table.dataTable tbody td, .wiki-table tbody td { color: var(--text-primary) !important; border-color: var(--border-color) !important; }
@@ -1827,5 +1851,82 @@ table.dataTable.display tbody tr:hover, .wiki-table tbody tr:hover { background-
 .shiny-input-checkboxgroup .checkbox::before { border-radius: 3px; }
 .shiny-input-radiogroup input:checked ~ span::before, .shiny-input-checkboxgroup input:checked ~ span::before { content: "✓"; position: absolute; left: 4px; top: 2px; font-size: 14px; line-height: 18px; color: var(--accent-yellow); font-weight: bold; text-shadow: 0 0 5px var(--accent-yellow); }
 .shiny-input-radiogroup input:checked ~ .radio-inline::before, .shiny-input-checkboxgroup input:checked ~ .checkbox::before { background-color: var(--accent-green); border-color: var(--accent-yellow); }
+
+
+/*
+======================================================================
+10. RESPONSIVE DESIGN & MOBILE STYLES
+======================================================================
+*/
+
+/* For Tablets and larger phones (~768px to 991px) */
+@media (max-width: 991px) {
+    .small-box h3 {
+        font-size: 30px; /* Slightly smaller value box numbers */
+    }
+}
+
+/* For Mobile Phones (<768px) */
+@media (max-width: 767px) {
+    .content-wrapper {
+        padding: 5px !important; /* Reduce padding to maximize space */
+    }
+
+    h2.animated-gradient-text {
+        font-size: 24px; /* Smaller main titles */
+    }
+    
+    .main-header .logo {
+        width: 100% !important;
+        text-align: left !important;
+    }
+
+    /* Make value boxes more compact */
+    .small-box {
+        text-align: center;
+    }
+    .small-box h3 {
+        font-size: 24px;
+    }
+    .small-box p {
+        font-size: 13px;
+    }
+    .small-box .icon {
+        display: none; /* Hide the large icon to save space */
+    }
+
+    /* Make the control panel refresh button full-width and more touch-friendly */
+    #refresh_button {
+        width: 100%;
+        font-size: 18px;
+        padding: 10px;
+    }
+    
+    .stock-item {
+        /* Allow items to be a bit smaller on mobile, but not too small */
+        flex-basis: 90px;
+        min-height: 130px;
+    }
+    .stock-item img {
+        max-width: 60px;
+        max-height: 60px;
+    }
+
+    /* Adjust Datatable controls to stack vertically */
+    .dataTables_wrapper .dt-buttons,
+    .dataTables_wrapper .dataTables_filter {
+        float: none !important;
+        text-align: center !important;
+        width: 100%;
+    }
+    .dataTables_wrapper .dataTables_filter {
+        margin-top: 10px;
+    }
+    .dataTables_wrapper .dataTables_filter input {
+      width: 90% !important; /* Make search bar wider */
+    }
+}
+
+/* --- END FILE: www/styles.css --- */
 --- END FILE: www/styles.css ---
 

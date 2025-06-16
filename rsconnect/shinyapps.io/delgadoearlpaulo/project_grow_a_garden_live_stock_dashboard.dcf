@@ -5,6 +5,8 @@ account: delgadoearlpaulo
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 14942136
-bundleId: 10464497
+bundleId: 10464781
 url: https://delgadoearlpaulo.shinyapps.io/project_grow_a_garden_live_stock_dashboard/
 version: 1
+asMultiple: FALSE
+asStatic: FALSE

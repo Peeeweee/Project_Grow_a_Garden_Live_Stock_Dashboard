@@ -7,12 +7,17 @@ encyclopedia_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName = "encyclopedia",
-          # --- MODIFICATION: Updated internal CSS for custom tables to match the new theme ---
+          # Updated internal CSS for custom tables to match the theme
           tags$head(
             tags$style(HTML("
               .encyclopedia-section-header {
                 margin-top: 20px; margin-bottom: 10px; border-left: 4px solid var(--accent-yellow); 
                 padding-left: 15px;
+              }
+              /* ### MODIFICATION: Added a wrapper class for mobile scrolling */
+              .wiki-table-wrapper {
+                overflow-x: auto;
+                width: 100%;
               }
               .wiki-table {
                 width: 100%; border-collapse: collapse; margin-bottom: 25px;
@@ -110,7 +115,6 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
           Obtainable = obtainable, sheckle_price_num, sell_value_num, robux_price_num
         )
       
-      # --- MODIFICATION: Updated datatable with new theme-friendly styles ---
       datatable(
         df_display,
         escape = FALSE,
@@ -168,29 +172,29 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
         current_data <- grouped_df$data[[i]]
         header_class <- paste0("rarity-header-", current_rarity)
         
-        table_rows <- lapply(1:nrow(current_data), function(j) {
-          tags$tr(
-            tags$td(current_data$name[j]),
-            tags$td(
-              if (!is.na(current_data$cost_numeric[j])) {
-                paste(format(current_data$cost_numeric[j], big.mark = ","), "Sheckles")
-              } else { "N/A" }
-            ),
-            tags$td(current_data$description[j]),
-            tags$td(current_data$uses[j])
-          )
-        })
-        
-        tags$table(class = "wiki-table",
-                   tags$thead(
-                     tags$tr(tags$th(class = header_class, colspan = "4", current_rarity)),
-                     tags$tr(
-                       tags$th("Tool"), tags$th("Cost"), 
-                       tags$th("Use"), tags$th("Number of Uses")
-                     )
-                   ),
-                   tags$tbody(table_rows)
+        table_html <- tags$table(class = "wiki-table",
+                                 tags$thead(
+                                   tags$tr(tags$th(class = header_class, colspan = "4", current_rarity)),
+                                   tags$tr(
+                                     tags$th("Tool"), tags$th("Cost"), 
+                                     tags$th("Use"), tags$th("Number of Uses")
+                                   )
+                                 ),
+                                 tags$tbody(lapply(1:nrow(current_data), function(j) {
+                                   tags$tr(
+                                     tags$td(current_data$name[j]),
+                                     tags$td(
+                                       if (!is.na(current_data$cost_numeric[j])) {
+                                         paste(format(current_data$cost_numeric[j], big.mark = ","), "Sheckles")
+                                       } else { "N/A" }
+                                     ),
+                                     tags$td(current_data$description[j]),
+                                     tags$td(current_data$uses[j])
+                                   )
+                                 }))
         )
+        ### MODIFICATION: Wrap the custom HTML table in a scrollable div for mobile.
+        div(class="wiki-table-wrapper", table_html)
       })
       
       tagList(tables_list)
@@ -200,18 +204,20 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
     output$egg_table_ui <- renderUI({
       df <- all_encyclopedia_data()$eggs_and_pets$eggs
       req(df, nrow(df) > 0)
-      tags$table(class = "wiki-table",
-                 tags$thead(tags$tr(
-                   tags$th("Egg Type"), tags$th("Cost"), tags$th("Chances to Appear"),
-                   tags$th("Number of Pet Types"), tags$th("Time to Grow")
-                 )),
-                 tags$tbody(lapply(1:nrow(df), function(i) {
-                   tags$tr(
-                     tags$td(df$name[i]), tags$td(HTML(df$cost[i])), tags$td(df$chance_to_appear[i]),
-                     tags$td(df$num_pets[i]), tags$td(df$grow_time[i])
-                   )
-                 }))
+      table_html <- tags$table(class = "wiki-table",
+                               tags$thead(tags$tr(
+                                 tags$th("Egg Type"), tags$th("Cost"), tags$th("Chances to Appear"),
+                                 tags$th("Number of Pet Types"), tags$th("Time to Grow")
+                               )),
+                               tags$tbody(lapply(1:nrow(df), function(i) {
+                                 tags$tr(
+                                   tags$td(df$name[i]), tags$td(HTML(df$cost[i])), tags$td(df$chance_to_appear[i]),
+                                   tags$td(df$num_pets[i]), tags$td(df$grow_time[i])
+                                 )
+                               }))
       )
+      ### MODIFICATION: Wrap the custom HTML table in a scrollable div for mobile.
+      div(class = "wiki-table-wrapper", table_html)
     })
     
     output$pet_tables_ui <- renderUI({
@@ -230,23 +236,23 @@ encyclopedia_server <- function(id, all_encyclopedia_data) {
         current_data <- grouped_df$data[[i]]
         header_class <- paste0("rarity-header-", current_rarity)
         
-        table_rows <- lapply(1:nrow(current_data), function(j) {
-          chance_value <- current_data$chance_of_appearing[j]
-          display_chance <- if (is.na(chance_value) || chance_value == "") "Not Listed" else chance_value
-          tags$tr(
-            tags$td(current_data$name[j]),
-            tags$td(current_data$bonus[j]),
-            tags$td(display_chance)
-          )
-        })
-        
-        tags$table(class = "wiki-table",
-                   tags$thead(
-                     tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Pets"))),
-                     tags$tr(tags$th("Pet Name"), tags$th("Bonus"), tags$th("Chance of Appearing"))
-                   ),
-                   tags$tbody(table_rows)
+        table_html <- tags$table(class = "wiki-table",
+                                 tags$thead(
+                                   tags$tr(tags$th(class = header_class, colspan = "3", paste("All", current_rarity, "Pets"))),
+                                   tags$tr(tags$th("Pet Name"), tags$th("Bonus"), tags$th("Chance of Appearing"))
+                                 ),
+                                 tags$tbody(lapply(1:nrow(current_data), function(j) {
+                                   chance_value <- current_data$chance_of_appearing[j]
+                                   display_chance <- if (is.na(chance_value) || chance_value == "") "Not Listed" else chance_value
+                                   tags$tr(
+                                     tags$td(current_data$name[j]),
+                                     tags$td(current_data$bonus[j]),
+                                     tags$td(display_chance)
+                                   )
+                                 }))
         )
+        ### MODIFICATION: Wrap the custom HTML table in a scrollable div for mobile.
+        div(class = "wiki-table-wrapper", table_html)
       })
       
       tagList(tables_list)

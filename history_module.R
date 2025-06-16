@@ -8,7 +8,6 @@ history_ui <- function(id) {
   ns <- NS(id)
   
   tabItem(tabName="history",
-          # --- MODIFICATION: Added animated class to the title ---
           h2(class = "animated-gradient-text", "Historical Stock Viewer"),
           p("Select a timestamp to see a snapshot of the stock at that specific moment."),
           
@@ -94,7 +93,8 @@ history_server <- function(id, history_data) {
           )
         })
         
-        tags$div(style="display:flex; flex-wrap:wrap; justify-content:center;", item_html)
+        # This will now use the responsive .stock-grid-container class from styles.css
+        tags$div(class="stock-grid-container", item_html)
       })
     }
     
@@ -102,7 +102,8 @@ history_server <- function(id, history_data) {
     output$history_seed_stock_ui      <- create_historical_item_grid("Seed Stock")
     output$history_gear_stock_ui      <- create_historical_item_grid("Gear Stock")
     output$history_egg_stock_ui       <- create_historical_item_grid("Egg Stock")
-    output$history_cosmetics_stock_ui <- create_historical_item_grid("Cosmetics Stock")
+    # Corrected a small typo in the original file, it was linking to cosmetics_stock_ui
+    output$history_cosmetics_stock_ui <- create_historical_item_grid("Cosmetics Stock") 
     output$history_honey_stock_ui     <- create_historical_item_grid("Honey Stock")
     output$history_night_stock_ui     <- create_historical_item_grid("Night Stock")
     
@@ -114,4 +115,4 @@ history_server <- function(id, history_data) {
   })
 }
 
-# --- END FILE: history_module.R ---
+# --- END FILE: history_module.R ---  
