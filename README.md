@@ -24,7 +24,16 @@ This project is a real-time, interactive web dashboard for the game "Grow a Gard
 ## 📸 Screenshot
 
 The main dashboard, providing an at-a-glance overview of all critical in-game timers and item stocks.
-![Live Dashboard View](https://github.com/user-attachments/assets/941d2794-c157-41a4-9e32-a52c1613589b)
+![image](https://github.com/user-attachments/assets/65967d03-5607-4861-9809-45bd60a448ea)
+![image](https://github.com/user-attachments/assets/fcd6d2b2-fd44-4cb1-bee5-d269dc1211e3)
+![image](https://github.com/user-attachments/assets/e2fad68f-a97f-477d-b2d8-f8e359322032)
+![image](https://github.com/user-attachments/assets/430d5296-79c5-441a-beae-301a3916948b)
+![image](https://github.com/user-attachments/assets/16b4001f-00a4-4bbc-86c3-a931bdf7a84f)
+![image](https://github.com/user-attachments/assets/ffb911f6-b3a0-4f27-914a-af4a828167b9)
+![image](https://github.com/user-attachments/assets/998c06af-636a-44c2-bc6f-ca0369ba7423)
+![image](https://github.com/user-attachments/assets/f9e4e39c-2849-4405-bf69-a8fbdda12d97)
+![image](https://github.com/user-attachments/assets/8ef45a86-542c-49af-a10c-de4175a8b00c)
+![image](https://github.com/user-attachments/assets/f4b725aa-cf43-4a45-88fb-1e0551c4b3c1)
 
 
 ## 🛠️ Tech Stack
@@ -40,10 +49,6 @@ This application is powered by the R ecosystem, demonstrating a modern, modulari
     -   **Time/Date:** `{lubridate}` for handling timers and timestamps.
 -   **Modularity:** The application is broken into **Shiny Modules** (`calculator_module.R`, `encyclopedia_module.R`, `history_module.R`) for better organization, scalability, and code management.
 -   **Deployment:** Hosted on **shinyapps.io**.
-
-## 📂 Project Structure
-
-The repository is organized to support a modular and maintainable Shiny application.
 
 
 ## 🚀 Getting Started
@@ -73,22 +78,6 @@ Make sure you have a recent version of **R** and **RStudio Desktop** installed.
     ```
 4.  Run the application by opening the `app.R` file and clicking the **"Run App"** button in RStudio, or by running `shiny::runApp()` in the console.
 
-## 🤝 Contributing
-
-Contributions, issues, and feature requests are welcome! Feel free to check the [issues page](https://github.com/Peeweeee/Project_Grow_a_Garden_Live_Stock_Dashboard/issues).
-
-1.  Fork the Project
-2.  Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3.  Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4.  Push to the Branch (`git push origin feature/AmazingFeature`)
-5.  Open a Pull Request
-
-## 📜 License
-
-Distributed under the MIT License. See `LICENSE` file for more information.
-
-## 📬 Contact
-
-Earl Paulo Delgado - [Your Email Here]
-
+Developed by: Kent Paulo Delgado
+University of Southeastern Philippines 
 Project Link: [https://github.com/Peeweeee/Project_Grow_a_Garden_Live_Stock_Dashboard](https://github.com/Peeweeee/Project_Grow_a_Garden_Live_Stock_Dashboard)
