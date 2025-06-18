@@ -73,7 +73,7 @@ Make sure you have a recent version of **R** and **RStudio Desktop** installed.
     install.packages(c(
       "shiny", "shinydashboard", "httr", "dplyr", 
       "readr", "lubridate", "purrr"
-      # Add any other required packages here
+      # See the modules for adding any other required packages here
     ))
     ```
 4.  Run the application by opening the `app.R` file and clicking the **"Run App"** button in RStudio, or by running `shiny::runApp()` in the console.
