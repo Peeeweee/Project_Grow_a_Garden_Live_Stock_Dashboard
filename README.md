@@ -79,5 +79,4 @@ Make sure you have a recent version of **R** and **RStudio Desktop** installed.
 4.  Run the application by opening the `app.R` file and clicking the **"Run App"** button in RStudio, or by running `shiny::runApp()` in the console.
 
 Developed by: Kent Paulo Delgado
-University of Southeastern Philippines 
 Project Link: [https://github.com/Peeweeee/Project_Grow_a_Garden_Live_Stock_Dashboard](https://github.com/Peeweeee/Project_Grow_a_Garden_Live_Stock_Dashboard)
