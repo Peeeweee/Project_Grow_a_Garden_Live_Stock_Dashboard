@@ -3,8 +3,6 @@
 **By Kent Paulo R. Delgado**
 
 
-*(Note: This is a placeholder banner. You can create a custom banner that represents your project.)*
-
 This project is a comprehensive R Shiny web application designed for players of the Roblox game "Grow a Garden". It provides a real-time, interactive dashboard to monitor in-game data, helping players make informed decisions about buying, selling, and trading.
 
 The dashboard pulls live information from various APIs and community-run websites to display current shop inventories, restock timers, and active weather events. It also features powerful tools like a fruit value calculator and a detailed in-game encyclopedia.
