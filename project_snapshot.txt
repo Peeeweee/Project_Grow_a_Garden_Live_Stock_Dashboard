@@ -487,10 +487,15 @@ ui <- dashboardPage(
               fluidRow(
                 column(8,
                        fluidRow(
-                         valueBoxOutput("seed_timer_box", width=4), valueBoxOutput("gear_timer_box", width=4), valueBoxOutput("egg_timer_box", width=4)
+                         # --- WRAPPED: ValueBoxes are now wrapped in clickable divs ---
+                         div(id = "clickable_seed_timer", style="cursor:pointer;", valueBoxOutput("seed_timer_box", width=4)), 
+                         div(id = "clickable_gear_timer", style="cursor:pointer;", valueBoxOutput("gear_timer_box", width=4)), 
+                         div(id = "clickable_egg_timer", style="cursor:pointer;", valueBoxOutput("egg_timer_box", width=4))
                        ),
                        fluidRow(
-                         valueBoxOutput("honey_timer_box", width=4), valueBoxOutput("cosmetics_timer_box", width=4), valueBoxOutput("night_timer_box", width=4)
+                         div(id = "clickable_honey_timer", style="cursor:pointer;", valueBoxOutput("honey_timer_box", width=4)), 
+                         div(id = "clickable_cosmetics_timer", style="cursor:pointer;", valueBoxOutput("cosmetics_timer_box", width=4)), 
+                         div(id = "clickable_night_timer", style="cursor:pointer;", valueBoxOutput("night_timer_box", width=4))
                        )
                 ),
                 column(4,
@@ -502,17 +507,18 @@ ui <- dashboardPage(
                        )
                 )
               ),
+              # --- WRAPPED: Stock boxes are now wrapped in divs with anchor IDs ---
               fluidRow(
-                box(title="Seed Stock", status="info", solidHeader=TRUE, width=6, uiOutput("seed_stock_ui")),
-                box(title="Gear Stock", status="info", solidHeader=TRUE, width=6, uiOutput("gear_stock_ui"))
+                div(id = "seed_stock_anchor", box(title="Seed Stock", status="info", solidHeader=TRUE, width=6, uiOutput("seed_stock_ui"))),
+                div(id = "gear_stock_anchor", box(title="Gear Stock", status="info", solidHeader=TRUE, width=6, uiOutput("gear_stock_ui")))
               ),
               fluidRow(
-                box(title="Egg Stock", status="warning", solidHeader=TRUE, width=6, uiOutput("egg_stock_ui")),
-                box(title="Cosmetics Stock", status="warning", solidHeader=TRUE, width=6, uiOutput("cosmetics_stock_ui"))
+                div(id = "egg_stock_anchor", box(title="Egg Stock", status="warning", solidHeader=TRUE, width=6, uiOutput("egg_stock_ui"))),
+                div(id = "cosmetics_stock_anchor", box(title="Cosmetics Stock", status="warning", solidHeader=TRUE, width=6, uiOutput("cosmetics_stock_ui")))
               ),
               fluidRow(
-                box(title="Honey Stock", status="success", solidHeader=TRUE, width=6, uiOutput("honey_stock_ui")),
-                box(title="Night Stock", status="primary", solidHeader=TRUE, width=6, uiOutput("night_stock_ui"))
+                div(id = "honey_stock_anchor", box(title="Honey Stock", status="success", solidHeader=TRUE, width=6, uiOutput("honey_stock_ui"))),
+                div(id = "night_stock_anchor", box(title="Night Stock", status="primary", solidHeader=TRUE, width=6, uiOutput("night_stock_ui")))
               )
       ),
       history_ui("history_module"),
@@ -566,15 +572,12 @@ server <- function(input, output, session) {
     
     data <- fetch_public_api_data()
     
-    # --- FINAL FALLBACK LOGIC ---
-    # Only use the fallback if the live stock data is completely empty
     if (length(data$stocks) == 0 || all(sapply(data$stocks, nrow) == 0)) {
       message("Live stock API failed or returned empty. Attempting to use fallback data.")
       showNotification("Live API is unresponsive. Using static fallback data.", type="warning", duration=8)
       fallback_data <- parse_debug_html()
       
       if(!is.null(fallback_data)) {
-        # Keep the live timers if they were successfully fetched
         data$stocks <- fallback_data$stocks
         if(length(data$timers) == 0) data$timers <- fallback_data$timers
         if(data$weather == "API Error") data$weather <- fallback_data$weather
@@ -639,21 +642,18 @@ server <- function(input, output, session) {
     
     is_finished <- unlist(decremented_timers) <= 0
     
-    # Trigger 1: Refresh when any timer hits zero
     if (any(was_running & is_finished, na.rm = TRUE)) {
       message("A timer hit zero. Triggering main auto-refresh.")
       showNotification("A timer finished! Refreshing...", type = "warning", duration = 5)
       mid_cycle_refresh_done(FALSE)
       fetch_data()
       
-      # Schedule a "double-tap" refresh to catch delayed API updates
       shinyjs::delay(1500, {
         message("Performing scheduled double-tap refresh to ensure data is current.")
         fetch_data()
       })
     }
     
-    # Trigger 2: Refresh specifically when Seed/Gear timer hits 4:20 (260s)
     seed_timer_val <- decremented_timers[["Seed Stock"]]
     if (!is.null(seed_timer_val) && seed_timer_val == 260 && !isolate(mid_cycle_refresh_done())) {
       message("Seed/Gear timer hit 4:20. Triggering mid-cycle refresh to catch updates.")
@@ -671,6 +671,16 @@ server <- function(input, output, session) {
       message("Performing scheduled 5-minute refresh."); showNotification("Performing scheduled 5-minute refresh...", type="message", duration=4)
       fetch_data()
     }
+  })
+  
+  # --- NEW: Observer to handle scrolling when timers are clicked ---
+  observe({
+    shinyjs::onclick("clickable_seed_timer", shinyjs::runjs("document.getElementById('seed_stock_anchor').scrollIntoView({ behavior: 'smooth' });"))
+    shinyjs::onclick("clickable_gear_timer", shinyjs::runjs("document.getElementById('gear_stock_anchor').scrollIntoView({ behavior: 'smooth' });"))
+    shinyjs::onclick("clickable_egg_timer", shinyjs::runjs("document.getElementById('egg_stock_anchor').scrollIntoView({ behavior: 'smooth' });"))
+    shinyjs::onclick("clickable_honey_timer", shinyjs::runjs("document.getElementById('honey_stock_anchor').scrollIntoView({ behavior: 'smooth' });"))
+    shinyjs::onclick("clickable_cosmetics_timer", shinyjs::runjs("document.getElementById('cosmetics_stock_anchor').scrollIntoView({ behavior: 'smooth' });"))
+    shinyjs::onclick("clickable_night_timer", shinyjs::runjs("document.getElementById('night_stock_anchor').scrollIntoView({ behavior: 'smooth' });"))
   })
   
   output$last_updated_text <- renderText({
