@@ -70,6 +70,41 @@ HISTORY_FILE <- "vulcan_stock_history.csv"
 FRUIT_VALUES_FILE <- "fruit_values.csv"
 DEBUG_HTML_FILE <- "debug_page_content.html"
 
+# NEW: Create maps for weather colors and icons
+WEATHER_COLORS <- list(
+  "Clear" = "teal",
+  "Rain" = "aqua",
+  "Thunderstorm" = "blue",
+  "Frost" = "light-blue",
+  "BeeSwarm" = "yellow",
+  "WorkingBeeSwarm" = "yellow",
+  "BloodMoonEvent" = "red",
+  "Volcano" = "orange",
+  "MeteorShower" = "purple",
+  "Blackhole" = "black",
+  "SunGod" = "yellow",
+  "JandelStorm" = "navy",
+  "Disco" = "fuchsia",
+  "ChocolateRain" = "maroon"
+)
+
+WEATHER_ICONS <- list(
+  "Clear" = "sun",
+  "Rain" = "cloud-showers-heavy",
+  "Thunderstorm" = "bolt",
+  "Frost" = "snowflake",
+  "BeeSwarm" = "bug",
+  "WorkingBeeSwarm" = "bug",
+  "BloodMoonEvent" = "moon",
+  "Volcano" = "fire",
+  "MeteorShower" = "meteor",
+  "Blackhole" = "circle-notch",
+  "SunGod" = "sun",
+  "JandelStorm" = "wind",
+  "Disco" = "compact-disc",
+  "ChocolateRain" = "tint"
+)
+
 
 # --- API & SCRAPING FUNCTIONS ---
 
@@ -141,35 +176,45 @@ fetch_master_seed_list <- function() {
     
   }, error = function(e) {
     message("   ERROR fetching master seed list: ", e$message)
-    showNotification(paste("Critical Scraper Failure:", e$message), type = "error", duration = 15)
     return(tibble())
   })
 }
 
-fetch_mutation_data <- function() {
-  message("--- Fetching Mutation Data (once) ---")
+fetch_all_mutation_data <- function() {
+  message("--- Fetching ALL Mutation Data from growagardencalculator.net ---")
   url <- "https://growagardencalculator.net/wiki/grow-a-garden-mutations"
   tryCatch({
-    page_html <- read_html(url)
-    mutation_table <- page_html %>% html_node("table")
-    df <- mutation_table %>% html_table()
-    
-    df <- df %>%
-      rename(name = `Mutation Name`, bonus = `Stack Bonus`) %>%
-      select(name, bonus) %>%
-      mutate(bonus = str_replace(bonus, "\\+", ""), bonus = suppressWarnings(as.numeric(bonus))) %>%
-      filter(!is.na(bonus))
-    
-    message("   Mutation data fetched successfully for ", nrow(df), " mutations.")
-    return(df)
+    page <- read_html(url)
+    table_node <- page %>% html_node("table")
+    if (is.null(table_node)) stop("Could not find the mutation table.")
+    mutations_df <- table_node %>% html_nodes("tr") %>% tail(-1) %>%
+      map_dfr(function(row) {
+        cells <- row %>% html_nodes("td")
+        if (length(cells) != 5) return(NULL)
+        tibble(
+          name = cells[[1]] %>% html_text(trim = TRUE), 
+          icon = cells[[2]] %>% html_node("img") %>% html_attr("src"),
+          multiplier = cells[[3]] %>% html_text(trim = TRUE), 
+          stack_bonus = cells[[4]] %>% html_text(trim = TRUE),
+          description = cells[[5]] %>% html_text(trim = TRUE)
+        )
+      })
+    message("   Successfully scraped ", nrow(mutations_df), " detailed mutations.")
+    return(mutations_df)
   }, error = function(e) {
-    message("   ERROR fetching mutation data: ", e$message)
-    showNotification(paste("Failed to fetch mutation data from", url), type = "error", duration = 10)
+    message("   ERROR fetching ALL mutation data: ", e$message)
     return(tibble())
   })
 }
 
-mutation_data <- fetch_mutation_data()
+# --- Data Preparation at Startup ---
+all_mutation_data <- fetch_all_mutation_data()
+mutation_data_for_calculator <- all_mutation_data %>%
+  rename(bonus = stack_bonus) %>%
+  select(name, bonus) %>%
+  mutate(bonus = str_replace(bonus, "\\+", ""), 
+         bonus = suppressWarnings(as.numeric(bonus))) %>%
+  filter(!is.na(bonus))
 
 
 # --- DEFINITIVE VERSION: Handles partial API failures and multiple API formats gracefully ---
@@ -376,7 +421,6 @@ fetch_ign_gear_data <- function() {
     return(gear_df)
   }, error = function(e) {
     message("   ERROR fetching new gear data: ", e$message)
-    showNotification(paste("Failed to fetch new gear data:", e$message), type = "error", duration = 10)
     return(tibble())
   })
 }
@@ -395,7 +439,6 @@ fetch_ign_egg_data <- function() {
     return(list(eggs = egg_df))
   }, error = function(e) {
     message("   ERROR fetching IGN egg data: ", e$message)
-    showNotification(paste("Failed to fetch IGN egg data from", url), type = "error", duration = 10)
     return(list(eggs = tibble()))
   })
 }
@@ -427,33 +470,6 @@ fetch_hatchable_pets_from_wiki <- function() {
     return(all_pets_df)
   }, error = function(e) {
     message("   ERROR fetching new hatchable pets data: ", e$message)
-    showNotification(paste("Failed to fetch pet data:", e$message), type = "error", duration = 10)
-    return(tibble())
-  })
-}
-
-fetch_detailed_mutations_data <- function() {
-  message("--- Fetching DETAILED Mutation Data from growagardencalculator.net ---")
-  url <- "https://growagardencalculator.net/wiki/grow-a-garden-mutations"
-  tryCatch({
-    page <- read_html(url)
-    table_node <- page %>% html_node("table")
-    if (is.null(table_node)) stop("Could not find the mutation table.")
-    mutations_df <- table_node %>% html_nodes("tr") %>% tail(-1) %>%
-      map_dfr(function(row) {
-        cells <- row %>% html_nodes("td")
-        if (length(cells) != 5) return(NULL)
-        tibble(
-          name = cells[[1]] %>% html_text(trim = TRUE), icon = cells[[2]] %>% html_node("img") %>% html_attr("src"),
-          multiplier = cells[[3]] %>% html_text(trim = TRUE), stack_bonus = cells[[4]] %>% html_text(trim = TRUE),
-          description = cells[[5]] %>% html_text(trim = TRUE)
-        )
-      })
-    message("   Successfully scraped ", nrow(mutations_df), " detailed mutations.")
-    return(mutations_df)
-  }, error = function(e) {
-    message("   ERROR fetching detailed mutation data: ", e$message)
-    showNotification(paste("Failed to fetch detailed mutation data from", url), type = "error", duration = 10)
     return(tibble())
   })
 }
@@ -539,6 +555,8 @@ server <- function(input, output, session) {
   timers_rv <- reactiveVal(list())
   fruit_data_rv <- reactiveVal()
   mid_cycle_refresh_done <- reactiveVal(FALSE)
+  # NEW: Add a flag for the 3:00 minute mark refresh.
+  three_minute_mark_refresh_done <- reactiveVal(FALSE)
   
   fetch_and_save_fruit_data <- function() {
     shinyjs::show("loading-overlay")
@@ -646,6 +664,8 @@ server <- function(input, output, session) {
       message("A timer hit zero. Triggering main auto-refresh.")
       showNotification("A timer finished! Refreshing...", type = "warning", duration = 5)
       mid_cycle_refresh_done(FALSE)
+      # NEW: Reset the 3:00 minute flag when the cycle completes.
+      three_minute_mark_refresh_done(FALSE)
       fetch_data()
       
       shinyjs::delay(1500, {
@@ -655,11 +675,21 @@ server <- function(input, output, session) {
     }
     
     seed_timer_val <- decremented_timers[["Seed Stock"]]
+    
+    # Existing refresh at 4:20 (260s)
     if (!is.null(seed_timer_val) && seed_timer_val == 260 && !isolate(mid_cycle_refresh_done())) {
       message("Seed/Gear timer hit 4:20. Triggering mid-cycle refresh to catch updates.")
       showNotification("Refreshing to catch stock updates...", type = "message", duration = 4)
       fetch_data()
       mid_cycle_refresh_done(TRUE) 
+    }
+    
+    # NEW: Add a refresh at 3:00 (180s)
+    if (!is.null(seed_timer_val) && seed_timer_val == 180 && !isolate(three_minute_mark_refresh_done())) {
+      message("Seed/Gear timer hit 3:00. Triggering scheduled refresh.")
+      showNotification("Performing 3-minute mark refresh...", type = "message", duration = 4)
+      fetch_data()
+      three_minute_mark_refresh_done(TRUE)
     }
   })
   
@@ -719,10 +749,17 @@ server <- function(input, output, session) {
   
   output$weather_box <- renderValueBox({
     data <- scraped_data(); req(data)
-    if (identical(data$weather, "API Error")) {
+    current_weather_name <- data$weather
+    
+    if (identical(current_weather_name, "API Error")) {
       return(valueBox("API OFFLINE", "Current Weather", icon=icon("exclamation-triangle"), color="red"))
     }
-    valueBox(data$weather, "Current Weather", icon=icon("cloud-sun-rain"), color="teal")
+    
+    # NEW: Dynamically select color and icon based on weather name
+    box_color <- WEATHER_COLORS[[current_weather_name]] %||% "teal"
+    box_icon <- WEATHER_ICONS[[current_weather_name]] %||% "cloud-sun-rain"
+    
+    valueBox(current_weather_name, "Current Weather", icon=icon(box_icon), color=box_color)
   })
   
   show_item_modal <- function(item_name) {
@@ -816,7 +853,7 @@ server <- function(input, output, session) {
   }, ignoreNULL = FALSE)
   
   encyclopedia_data <- reactiveVal({
-    message("--- Aggregating all encyclopedia data at startup (politely)... ---")
+    message("--- Aggregating all encyclopedia data... ---")
     
     seeds_data <- fetch_master_seed_list()
     Sys.sleep(1.5)
@@ -827,8 +864,7 @@ server <- function(input, output, session) {
     hatchable_pets_data <- fetch_hatchable_pets_from_wiki()
     Sys.sleep(1.5)
     
-    mutations_data <- fetch_detailed_mutations_data()
-    Sys.sleep(1.5)
+    mutations_data <- all_mutation_data
     
     ign_data <- fetch_ign_egg_data() 
     
@@ -852,7 +888,7 @@ server <- function(input, output, session) {
   calculator_return <- calculator_server("calculator", 
                                          fruit_data_rv = fruit_data_rv, 
                                          fruit_value_list_rv = fruit_value_list_rv,
-                                         mutation_data = mutation_data)
+                                         mutation_data = mutation_data_for_calculator)
   
   observeEvent(calculator_return$fetch_data(), {
     req(calculator_return$fetch_data() > 0) 
