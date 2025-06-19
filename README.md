@@ -1,7 +1,7 @@
 # Grow A Garden - Live Stock Dashboard
 
 **By Kent Paulo R. Delgado**
-
+![image](https://github.com/user-attachments/assets/b90c2680-1748-4191-a403-e47b2e6af19a)
 
 This project is a comprehensive R Shiny web application designed for players of the Roblox game "Grow a Garden". It provides a real-time, interactive dashboard to monitor in-game data, helping players make informed decisions about buying, selling, and trading.
 
@@ -65,22 +65,26 @@ A one-stop reference for all in-game items, scraped from community wikis.
 Here are some previews of the dashboard in action.
 
 **Live Dashboard View:**
-*(Shows the main page with timers, weather, and current stock.)*
+![image](https://github.com/user-attachments/assets/31bab383-7e39-44fa-adf8-d9d80feaf7cd)
+![image](https://github.com/user-attachments/assets/db436778-92f0-4fe2-8dde-b1c44de96c48)
 
 
 **Fruit Calculator in Action:**
-*(Shows a crop and mutations selected with the final value calculated.)*
+![image](https://github.com/user-attachments/assets/03c700f4-de33-41aa-b3f6-46e9e5365563)
+![image](https://github.com/user-attachments/assets/0fa32580-2f1b-4dba-bffe-485e19df982a)
 
 
 **Stock History Page:**
-*(Shows a historical timestamp selected and the corresponding stock.)*
+![image](https://github.com/user-attachments/assets/b7b94251-b324-42ab-bc76-999714efc6a0)
 
 
 **In-Game Encyclopedia:**
-*(Shows one of the detailed tables, like the Gear or Pets section.)*
+![image](https://github.com/user-attachments/assets/cd4fc1df-69f9-426d-bd03-f49fa4c976d2)
+![image](https://github.com/user-attachments/assets/c0be8dc8-f311-4828-bcde-a0dc3af30198)
+![image](https://github.com/user-attachments/assets/c3f7e385-e0eb-4737-84a5-db41d4f11f08)
+![image](https://github.com/user-attachments/assets/080b1706-f73f-4c91-95ab-b745ee44ecda)
+![image](https://github.com/user-attachments/assets/0b64409b-1770-4635-aa0d-0d75a973234a)
 
-
-*(To add your own screenshots, replace the `https://i.imgur.com/your-screenshot-name.png` links with your image URLs.)*
 
 ---
 
